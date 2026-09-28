@@ -1,0 +1,329 @@
+/** 房间页：快照/成员/播放状态展示与房主控制（Phase 1 范围，无音频）。
+ * 连接失败与自动播放限制的提示是本页的明确职责（phase-1 checklist 第 7 项）。 */
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { RoomStore } from "../../transport/ws/room-store";
+import { loadSession, clearSession, type RoomSession } from "./session";
+import { roomApi } from "./api";
+import { buildInviteLink } from "./invite";
+import { navigate } from "../../app/router";
+import CopyButton from "../../ui/CopyButton";
+
+const ROLE_LABEL: Record<string, string> = { host: "房主", co_dj: "共同 DJ", listener: "听众" };
+
+const STATUS_LABEL: Record<string, string> = {
+  connecting: "正在连接房间…",
+  connected: "已连接",
+  reconnecting: "连接中断，正在重连…",
+  closed: "连接已断开",
+};
+
+export default function RoomPage({ roomId }: { roomId: string }) {
+  const session = loadSessionGuarded(roomId);
+  if (!session) {
+    return (
+      <main className="page">
+        <h1>房间 {roomId}</h1>
+        <p role="alert" data-testid="session-missing">
+          本页没有有效的房间会话。请从邀请链接重新加入。
+        </p>
+        <a href="/">返回首页</a>
+      </main>
+    );
+  }
+  return <RoomView roomId={roomId} session={session} />;
+}
+
+function loadSessionGuarded(roomId: string): RoomSession | null {
+  return loadSession(roomId);
+}
+
+function RoomView({ roomId, session }: { roomId: string; session: RoomSession }) {
+  const [store] = useState(
+    () =>
+      new RoomStore({
+        roomId,
+        sessionToken: session.sessionToken,
+        memberId: session.memberId,
+        serverTimeMs: session.serverTimeMs,
+        localTimeMs: session.localTimeMs,
+      }),
+  );
+  const state = useSyncExternalStore(store.subscribe, store.getState);
+  const [, setTick] = useState(0);
+  const [locked, setLocked] = useState<boolean | null>(null);
+  const [nextTitle, setNextTitle] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    store.connect();
+    const timer = setInterval(() => setTick((t) => t + 1), 500);
+    return () => {
+      clearInterval(timer);
+      store.leave();
+    };
+  }, [store]);
+
+  useEffect(() => {
+    let cancelled = false;
+    roomApi
+      .info(roomId)
+      .then((info) => {
+        if (!cancelled) setLocked(info.locked);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId]);
+
+  const room = state.room;
+  const members = room?.members ?? [];
+  // 权威角色来自服务端快照（房主离开会转移）；session.role 只作初始回退
+  const selfMember = members.find((m) => m.memberId === session.memberId);
+  const selfRole = selfMember?.role ?? session.role;
+  const isHost = selfRole === "host";
+  const canPrepare = selfRole === "host" || selfRole === "co_dj";
+  const onlineCount = members.filter((m) => m.status === "online").length;
+  const readyCount = members.filter((m) => m.ready === true).length;
+  const barrier = state.pendingPrepare;
+  const durationMs = room?.currentTrack?.durationMs ?? 0;
+  const positionMs = store.livePositionMs();
+
+  async function withActionError(fn: () => Promise<unknown>) {
+    setActionError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setActionError((err as Error).message || "操作失败");
+    }
+  }
+
+  function leaveRoom() {
+    clearSession(roomId);
+    store.leave();
+    navigate("/");
+  }
+
+  return (
+    <main className="page">
+      <header className="room-header">
+        <h1>房间 {roomId}</h1>
+        <p>
+          你是 <strong>{session.name}</strong>（{ROLE_LABEL[selfRole] ?? selfRole}） · 在线 {onlineCount}/{members.length}
+        </p>
+        <button type="button" onClick={leaveRoom} data-testid="leave-room">
+          离开房间
+        </button>
+      </header>
+
+      <section aria-live="polite" data-testid="connection-banner" className={`banner status-${state.status}`}>
+        {STATUS_LABEL[state.status] ?? state.status}
+        {state.status === "reconnecting" && `（第 ${state.reconnectAttempt} 次重试）`}
+      </section>
+
+      {state.fatalMessage && (
+        <section role="alert" className="banner fatal" data-testid="fatal-banner">
+          {state.fatalMessage}
+          <div>
+            <a href="/">返回首页</a>
+          </div>
+        </section>
+      )}
+
+      {state.lastError && (
+        <section role="alert" className="banner warn" data-testid="error-banner">
+          操作被拒绝：{state.lastError.message || state.lastError.code}
+        </section>
+      )}
+      {actionError && (
+        <section role="alert" className="banner warn" data-testid="action-error">
+          {actionError}
+        </section>
+      )}
+
+      <section className="card">
+        <h2>正在播放</h2>
+        {room?.currentTrack ? (
+          <p data-testid="now-playing">
+            《{room.currentTrack.title}》
+            {room.currentTrack.artist ? ` — ${room.currentTrack.artist}` : ""} ·{" "}
+            {room.playing ? "播放中" : "已暂停"} · {formatMs(positionMs)}
+            {durationMs > 0 ? ` / ${formatMs(durationMs)}` : ""}
+          </p>
+        ) : (
+          <p data-testid="now-playing-empty">还没有播放中的歌曲。房主可以通过“下一首”开始第一首歌。</p>
+        )}
+        {barrier && (
+          <p className="banner info" data-testid="barrier-banner">
+            准备下一首：《{barrier.track.title}》· 已就绪 {readyCount}/{onlineCount} ·{" "}
+            {Math.max(0, Math.ceil((barrier.startAtMs - store.serverNow()) / 1000))} 秒后统一开始
+          </p>
+        )}
+        {isHost && (
+          <div className="controls" data-testid="host-controls">
+            <button type="button" onClick={() => store.play()} data-testid="play-btn" disabled={!room?.currentTrack}>
+              播放
+            </button>
+            <button type="button" onClick={() => store.pause()} data-testid="pause-btn" disabled={!room?.currentTrack}>
+              暂停
+            </button>
+            <label className="seek">
+              进度
+              <input
+                type="range"
+                min={0}
+                max={durationMs > 0 ? durationMs : 100}
+                value={Math.min(positionMs, durationMs > 0 ? durationMs : positionMs)}
+                disabled={!room?.currentTrack || durationMs === 0}
+                onChange={(e) => store.seek(Number(e.target.value))}
+                data-testid="seek-slider"
+              />
+            </label>
+          </div>
+        )}
+        {canPrepare && (
+          <form
+            className="controls"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!nextTitle.trim()) return;
+              store.prepareNext({ trackId: `local-${Date.now()}`, title: nextTitle.trim(), durationMs: 0 });
+              setNextTitle("");
+            }}
+            data-testid="prepare-form"
+          >
+            <input
+              value={nextTitle}
+              onChange={(e) => setNextTitle(e.target.value)}
+              placeholder="下一首曲名（Phase 1 模拟切歌）"
+              maxLength={512}
+              data-testid="next-title"
+            />
+            <button type="submit" data-testid="prepare-btn">
+              发起下一首（全员对齐）
+            </button>
+          </form>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>成员</h2>
+        <ul data-testid="member-list">
+          {members.map((m) => (
+            <li key={m.memberId} data-testid="member-item">
+              <span className={`dot ${m.status}`} aria-label={m.status} />
+              {m.name}
+              <span className="badge">{ROLE_LABEL[m.role] ?? m.role}</span>
+              {barrier && m.ready !== undefined && <span className="badge">{m.ready ? "已就绪 ✓" : "准备中…"}</span>}
+              {isHost && m.memberId !== session.memberId && (
+                <span className="member-admin">
+                  <button
+                    type="button"
+                    onClick={() => withActionError(() => roomApi.kick(roomId, session.sessionToken, m.memberId))}
+                  >
+                    踢出
+                  </button>
+                  {m.role !== "co_dj" && (
+                    <button
+                      type="button"
+                      onClick={() => withActionError(() => roomApi.setRole(roomId, session.sessionToken, m.memberId, "co_dj"))}
+                    >
+                      设为共同 DJ
+                    </button>
+                  )}
+                  {m.role !== "listener" && (
+                    <button
+                      type="button"
+                      onClick={() => withActionError(() => roomApi.setRole(roomId, session.sessionToken, m.memberId, "listener"))}
+                    >
+                      设为听众
+                    </button>
+                  )}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+        {!isHost && (
+          <button type="button" onClick={() => store.resync()} data-testid="resync-btn">
+            重新同步（只影响自己）
+          </button>
+        )}
+      </section>
+
+      {isHost && (
+        <section className="card">
+          <h2>房主管理</h2>
+          {session.inviteToken && (
+            <p>
+              邀请链接：
+              <code data-testid="invite-link">
+                {buildInviteLink(window.location.origin, roomId, session.inviteToken)}
+              </code>{" "}
+              <CopyButton text={buildInviteLink(window.location.origin, roomId, session.inviteToken)} />
+            </p>
+          )}
+          <div className="controls">
+            <button
+              type="button"
+              data-testid="lock-toggle"
+              onClick={() =>
+                withActionError(async () => {
+                  const res = await roomApi.lock(roomId, session.sessionToken, !(locked ?? false));
+                  setLocked(res.locked);
+                })
+              }
+            >
+              {locked ? "解锁房间" : "锁房（停止新成员加入）"}
+            </button>
+            <button
+              type="button"
+              data-testid="close-room"
+              onClick={() => {
+                if (!window.confirm("确定关闭房间？所有成员将被请出。")) return;
+                withActionError(async () => {
+                  await roomApi.close(roomId, session.sessionToken);
+                  clearSession(roomId);
+                  navigate("/");
+                });
+              }}
+            >
+              关闭房间
+            </button>
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <h2>队列</h2>
+        {(room?.queue?.length ?? 0) === 0 ? (
+          <p data-testid="queue-empty">队列为空（点歌与排序在 Phase 3 接入）。</p>
+        ) : (
+          <ol>
+            {room!.queue.map((track) => (
+              <li key={track.trackId}>
+                {track.title}
+                {track.artist ? ` — ${track.artist}` : ""}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section className="card hint" data-testid="autoplay-notice">
+        <h2>关于自动播放限制</h2>
+        <p>
+          浏览器通常会阻止未经交互的自动播放。Phase 2 接入真实音频后：进入房间请先点击页面任意位置，
+          若歌曲未自动出声，点击“播放”或“重新同步”即可解锁。控制通道的同步不依赖该设置。
+        </p>
+      </section>
+    </main>
+  );
+}
+
+export function formatMs(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}

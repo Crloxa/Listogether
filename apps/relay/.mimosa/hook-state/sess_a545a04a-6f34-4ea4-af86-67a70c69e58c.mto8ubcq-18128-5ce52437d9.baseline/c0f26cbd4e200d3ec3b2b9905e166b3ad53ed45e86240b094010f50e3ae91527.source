@@ -1,0 +1,101 @@
+// Package ws 实现 WebSocket 连接：升级、消息校验循环和错误回包。
+// Phase 0 只做信封校验；房间逻辑与信令转发在 Phase 1/2 接入。
+package ws
+
+import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"listogether/apps/relay/internal/protocol"
+)
+
+const (
+	writeWait      = 5 * time.Second
+	readWait       = 60 * time.Second
+	maxMessageSize = 64 * 1024
+)
+
+// NewHandler 返回 GET /ws 处理器：升级连接并循环校验消息。
+// 非法消息回 ERROR 事件；合法消息 Phase 0 仅记录，不产生回包。
+func NewHandler(logger *slog.Logger, allowedOrigins []string) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = struct{}{}
+	}
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // 非浏览器客户端（curl、测试）
+			}
+			_, ok := allowed[origin]
+			return ok
+		},
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			logger.Debug("ws upgrade failed", "err", err.Error())
+			return
+		}
+		defer conn.Close()
+		conn.SetReadLimit(maxMessageSize)
+		_ = conn.SetReadDeadline(time.Now().Add(readWait))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(readWait))
+		})
+
+		for {
+			msgType, data, err := conn.ReadMessage()
+			if err != nil {
+				logger.Debug("ws read ended", "err", err.Error())
+				return
+			}
+			if msgType != websocket.TextMessage {
+				sendError(conn, logger, protocol.CodeInvalidMessage, "仅接受 JSON 文本帧", "")
+				continue
+			}
+			env, verr := parseEnvelope(data)
+			if verr != nil {
+				sendError(conn, logger, verr.Code, verr.Message, "")
+				continue
+			}
+			if err := protocol.Validate(env); err != nil {
+				sendError(conn, logger, err.Code, err.Message, env.EventID)
+				continue
+			}
+			// 合法消息：Phase 0 只记录，Phase 1 接入房间 actor。
+			logger.Debug("ws message accepted", "type", env.Type, "eventId", env.EventID)
+		}
+	})
+}
+
+// parseEnvelope 严格解析信封：未知信封字段拒绝（对应 schema additionalProperties:false）。
+func parseEnvelope(data []byte) (*protocol.Envelope, *protocol.ProtocolError) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var env protocol.Envelope
+	if err := dec.Decode(&env); err != nil {
+		return nil, &protocol.ProtocolError{Code: protocol.CodeInvalidMessage, Message: "JSON 解析失败或包含未知字段"}
+	}
+	return &env, nil
+}
+
+func sendError(conn *websocket.Conn, logger *slog.Logger, code, message, refEventID string) {
+	env := protocol.NewErrorEnvelope(code, message, refEventID, time.Now().UnixMilli())
+	data, err := json.Marshal(env)
+	if err != nil {
+		return
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		logger.Debug("ws write error", "err", err.Error())
+	}
+}

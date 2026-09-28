@@ -1,0 +1,23 @@
+{
+  "name": "listogether",
+  "private": true,
+  "description": "Listogether monorepo: browser music sharing room (web client + Go relay)",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:relay": "node scripts/go.mjs test ./...",
+    "vet:relay": "node scripts/go.mjs vet ./...",
+    "build:relay": "node scripts/go.mjs build -o apps/relay/bin/relay.exe ./cmd/relay",
+    "dev:relay": "node scripts/go.mjs run ./cmd/relay",
+    "dev:web": "npm run dev -w @listogether/web",
+    "smoke": "node scripts/smoke.mjs"
+  }
+}

@@ -1,0 +1,14 @@
+import { vi } from "vitest";
+
+/** 模拟 Relay /healthz；body 为 null 时让 fetch 直接 reject。 */
+export function stubRelayHealth(body: unknown, rejectWith?: Error) {
+  const impl = rejectWith
+    ? vi.fn().mockRejectedValue(rejectWith)
+    : vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => body,
+      });
+  vi.stubGlobal("fetch", impl);
+  return impl;
+}

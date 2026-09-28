@@ -1,0 +1,47 @@
+# Listogether 一键部署：web（nginx 托管 + 反代）+ relay（Go 控制面）。
+# 用法：
+#   docker compose up -d --build     # 构建并启动
+#   浏览器访问 http://localhost:9000
+#   docker compose logs -f relay     # 看日志
+#   docker compose down              # 停止（房间为内存态，停止即清空）
+services:
+  relay:
+    build:
+      context: ./apps/relay
+      # 海外网络可解除注释改回官方代理：
+      # args:
+      #   GOPROXY: https://proxy.golang.org,direct
+    environment:
+      LISTO_RELAY_ADDR: ":8080"
+      # 浏览器来源 = nginx 站点来源；换端口/域名时同步修改
+      LISTO_RELAY_ALLOWED_ORIGINS: "http://localhost:9000"
+      # OAuth 回调基址 = 对外站点来源；不配 OAuth 可留空
+      LISTO_RELAY_PUBLIC_BASE_URL: "http://localhost:9000"
+      LISTO_RELAY_LOG_LEVEL: "info"
+      # ---- 可选：TURN 短期凭据（与 coturn static-auth-secret 对应）----
+      # LISTO_TURN_URLS: "turn:turn.example.com:3478?transport=udp"
+      # LISTO_TURN_SECRET: "change-me-high-entropy-secret"
+      # ---- 可选：OAuth 平台凭证（占位示例，勿提交真实值）----
+      # LISTO_OAUTH_SPOTIFY_CLIENT_ID: ""
+      # LISTO_OAUTH_SPOTIFY_CLIENT_SECRET: ""
+      # LISTO_OAUTH_SPOTIFY_SCOPES: "user-read-private"
+      # LISTO_OAUTH_SPOTIFY_AUTHORIZE_URL: "https://accounts.spotify.com/authorize"
+      # LISTO_OAUTH_SPOTIFY_TOKEN_URL: "https://accounts.spotify.com/api/token"
+      # LISTO_OAUTH_SPOTIFY_USERINFO_URL: "https://api.spotify.com/v1/me"
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # 留空 = 前端走同源相对路径（经 nginx 反代）；跨域部署时改为完整 relay 地址
+        VITE_RELAY_HTTP_URL: ""
+    ports:
+      - "9000:80"
+    depends_on:
+      relay:
+        condition: service_healthy
+    restart: unless-stopped

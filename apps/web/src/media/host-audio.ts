@@ -1,0 +1,381 @@
+/**
+ * 房主音频控制器（D-011）：
+ * - 本地文件解码为 AudioBuffer（currentBuffer=正在播放，pendingBuffer=下一首要播放的）；
+ * - 为每个在线成员维护独立 PeerConnection + MediaStreamAudioDestinationNode；
+ * - 每次权威播放状态变化（PLAY/PAUSE/SEEK/NEXT_TRACK_START/RESYNC）按新锚点重建音频段；
+ * - 成员离开或降级时释放对应资源，不出泄漏。
+ */
+import { computeSegmentTiming } from "./audio-clock";
+import { chunkCover } from "./cover-channel";
+import { decodeAudioFile, type DecodedTrackMeta } from "./local-source/buffer-source";
+import { parseIceServers } from "./webrtc/ice-config";
+import { diffPeerTargets, HostPeerSession, type HostPeerDeps } from "./webrtc/peer-targets";
+
+export interface HostSendFn {
+  (type: "WEBRTC_OFFER", payload: { toMemberId: string; sdp: string }): boolean;
+  (type: "ICE_CANDIDATE", payload: { toMemberId: string; candidate: string }): boolean;
+}
+
+/** 文件名去扩展名（stageFile 缓存命中时补标题用）。 */
+function fileTitleOf(file: File): string {
+  return file.name.replace(/\.[^.]+$/, "").trim() || "本地音频";
+}
+
+interface PeerEntry {
+  session: HostPeerSession;
+  source: AudioBufferSourceNode | null;
+}
+
+export interface HostAudioDebug {
+  ctxState: string;
+  loadedCurrent: boolean;
+  loadedPending: DecodedTrackMeta | null;
+  peers: Array<{ memberId: string; state: string; ice: string; serving: boolean; destTrackMuted: boolean | null }>;
+  iceSource: "runtime" | "env" | "default";
+  iceError: string | null;
+  /** 房主本地监听电平（RMS），用于确认音频段确实在产出采样。 */
+  monitorLevel: number;
+}
+
+/** 解析传入的信令载荷（web 域信封 payload 已由协议层校验）。 */
+export interface HostSignalingHandlers {
+  onOffer(memberId: string, sdp: string): void;
+  onCandidate(memberId: string, candidate: string): void;
+}
+
+export class HostAudioController {
+  private ctx: AudioContext | null = null;
+  private monitorGain: GainNode | null = null;
+  private monitorAnalyser: AnalyserNode | null = null;
+  private currentBuffer: AudioBuffer | null = null;
+  private currentTrackId: string | null = null;
+  private pending: DecodedTrackMeta | null = null;
+  private pendingBuffer: AudioBuffer | null = null;
+  /** 解码缓存：trackId → AudioBuffer（屏障暂存/重新播放避免重复解码）。 */
+  private readonly decoded = new Map<string, AudioBuffer>();
+  private peers = new Map<string, PeerEntry>();
+  /** 监听用源节点（与成员源分开建，避免多成员求和叠加）。 */
+  private monitorSource: AudioBufferSourceNode | null = null;
+  /** 自然播完检测（Phase 3）：音频段自然结束时触发，暂停/拖动/切歌的 stop 不触发。 */
+  private naturalEndArmed = false;
+  /** 曲目自然播完回调（房主据此推进队列）。 */
+  onTrackEnded: (() => void) | null = null;
+  /** 封面数据通道 open 回调（D-016）：页面据此向新成员补发当前封面。 */
+  onCoverChannelOpen: ((memberId: string) => void) | null = null;
+  private localVolume = 1;
+  /** 封面去重：(成员, trackId) 只发一次（D-016）。 */
+  private readonly sentCovers = new Map<string, Set<string>>();
+  private readonly ice = parseIceServers(
+    (import.meta.env.VITE_ICE_SERVERS as string | undefined) ?? null,
+  );
+
+  constructor(
+    private readonly send: HostSendFn,
+    private readonly signaling: HostSignalingHandlers,
+  ) {}
+
+  private ensureCtx(): AudioContext {
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      this.monitorGain = this.ctx.createGain();
+      this.monitorGain.gain.value = this.localVolume;
+      this.monitorAnalyser = this.ctx.createAnalyser();
+      this.monitorAnalyser.fftSize = 512;
+      this.monitorGain.connect(this.monitorAnalyser);
+      this.monitorAnalyser.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === "suspended") void this.ctx.resume();
+    return this.ctx;
+  }
+
+  /** 用户手势路径（文件选择）调用：解码并暂存为“下一首”。 */
+  async loadFile(file: File): Promise<DecodedTrackMeta> {
+    const ctx = this.ensureCtx();
+    const { buffer, meta } = await decodeAudioFile(file, ctx);
+    this.pendingBuffer = buffer;
+    this.pending = meta;
+    this.decoded.set(meta.trackId, buffer);
+    return meta;
+  }
+
+  /**
+   * 队列/屏障路径（Phase 3）：按 trackId 暂存指定文件为“下一首”。
+   * 收到 NEXT_TRACK_PREPARE（无论发起者）时由页面调用；解码失败抛出。
+   */
+  async stageFile(trackId: string, file: File): Promise<DecodedTrackMeta> {
+    const cached = this.decoded.get(trackId);
+    if (cached) {
+      this.pendingBuffer = cached;
+      this.pending = { trackId, title: fileTitleOf(file), durationMs: Math.round(cached.duration * 1000) };
+      return this.pending;
+    }
+    return this.loadFileAs(file, trackId);
+  }
+
+  private async loadFileAs(file: File, trackId: string): Promise<DecodedTrackMeta> {
+    const ctx = this.ensureCtx();
+    const { buffer, meta } = await decodeAudioFile(file, ctx);
+    const fixed = { ...meta, trackId };
+    this.pendingBuffer = buffer;
+    this.pending = fixed;
+    this.decoded.set(trackId, buffer);
+    return fixed;
+  }
+
+  hasPendingTrack(): boolean {
+    return this.pendingBuffer != null;
+  }
+
+  pendingTrack(): DecodedTrackMeta | null {
+    return this.pending;
+  }
+
+  /** 当前正在播放的曲目（封面发送时机判断用）。 */
+  get currentCoverTrackId(): string | null {
+    return this.currentTrackId;
+  }
+
+  /** 向单个成员发送封面（D-016）：分块 JSON 文本帧；(成员,trackId) 只发一次。 */
+  async sendCoverToMember(memberId: string, trackId: string, mime: string, bytes: Uint8Array): Promise<void> {
+    const entry = this.peers.get(memberId);
+    if (!entry || entry.session.channel.readyState !== "open") return;
+    let sent = this.sentCovers.get(memberId);
+    if (sent?.has(trackId)) return;
+    const packed = chunkCover(trackId, mime, bytes);
+    if (!packed) return;
+    const channel = entry.session.channel;
+    try {
+      channel.send(JSON.stringify(packed.meta));
+      for (const chunk of packed.chunks) channel.send(JSON.stringify(chunk));
+      sent ??= new Set<string>();
+      sent.add(trackId);
+      this.sentCovers.set(memberId, sent);
+    } catch {
+      /* 通道瞬时不可用：忽略（成员端显示占位） */
+    }
+  }
+
+  /** 向所有 open 通道广播封面（切歌时调用）。 */
+  async broadcastCover(trackId: string, mime: string, bytes: Uint8Array): Promise<void> {
+    await Promise.all([...this.peers.keys()].map((memberId) => this.sendCoverToMember(memberId, trackId, mime, bytes)));
+  }
+
+  // ---- 成员连接 reconcile（快照/加入/离开统一入口） ----
+
+  syncMembers(onlineMemberIds: string[]): void {
+    const { create, close } = diffPeerTargets(onlineMemberIds, [...this.peers.keys()]);
+    for (const id of close) this.closePeer(id);
+    for (const id of create) this.ensurePeer(id);
+  }
+
+  /** 成员的应答（WEBRTC_ANSWER，senderId 为成员）。 */
+  handleAnswer(memberId: string, sdp: string): void {
+    void this.peers.get(memberId)?.session.acceptAnswer(sdp).catch(() => {
+      /* 应答失败：重新同步路径会重建连接 */
+    });
+  }
+
+  /** 成员的 ICE 候选（ICE_CANDIDATE，senderId 为成员）。 */
+  handleCandidate(memberId: string, candidate: string): void {
+    void this.peers.get(memberId)?.session.addIceCandidate(candidate);
+  }
+
+  private ensurePeer(memberId: string): HostPeerSession | null {
+    const existing = this.peers.get(memberId);
+    if (existing) return existing.session;
+    if (!this.ctx) return null; // 未加载文件前没有 AudioContext，也不需要发流
+    const deps: HostPeerDeps = {
+      iceServers: this.ice.servers,
+      sendOffer: (id, sdp) => this.signaling.onOffer(id, sdp),
+      sendCandidate: (id, cand) => this.signaling.onCandidate(id, cand),
+      onConnectionStateChange: () => {},
+    };
+    const session = new HostPeerSession(memberId, this.ctx, deps);
+    const entry: PeerEntry = { session, source: null };
+    this.peers.set(memberId, entry);
+    session.channel.onopen = () => {
+      // 新通道 = 新成员连接（含重连）：清去重记录，保证当前封面重发（D-016）
+      this.sentCovers.delete(memberId);
+      this.onCoverChannelOpen?.(memberId);
+    };
+    // 开发/端到端验证探针：供页面侧 getStats 诊断（生产构建不含）
+    if (import.meta.env.DEV) {
+      const w = window as unknown as { __listoHostPcs?: Map<string, RTCPeerConnection> };
+      (w.__listoHostPcs ??= new Map()).set(memberId, session.pc);
+    }
+    void session.createAndSendOffer().catch(() => {
+      /* offer 失败：成员健康检查/重新同步会再次触发 */
+    });
+    return session;
+  }
+
+  private closePeer(memberId: string): void {
+    const entry = this.peers.get(memberId);
+    if (!entry) return;
+    this.stopSource(entry);
+    entry.session.close();
+    this.peers.delete(memberId);
+    this.sentCovers.delete(memberId);
+  }
+
+  /** 房主不再持有播放权威（角色转移）或页面卸载：释放全部媒体资源。 */
+  release(): void {
+    this.naturalEndArmed = false;
+    this.stopAllSegments();
+    for (const id of [...this.peers.keys()]) this.closePeer(id);
+    this.monitorGain?.disconnect();
+    this.monitorAnalyser?.disconnect();
+    this.monitorGain = null;
+    this.monitorAnalyser = null;
+    this.decoded.clear();
+    this.currentBuffer = null;
+    this.currentTrackId = null;
+    void this.ctx?.close().catch(() => {});
+    this.ctx = null;
+  }
+
+  // ---- 音频段 ----
+
+  private stopSource(entry: PeerEntry): void {
+    if (entry.source) {
+      try {
+        entry.source.stop();
+      } catch {
+        /* 未 start 过的节点 */
+      }
+      entry.source.disconnect();
+      entry.source = null;
+    }
+  }
+
+  private stopAllSegments(): void {
+    this.naturalEndArmed = false;
+    for (const entry of this.peers.values()) this.stopSource(entry);
+    if (this.monitorSource) {
+      try {
+        this.monitorSource.stop();
+      } catch {
+        /* 未 start */
+      }
+      this.monitorSource.disconnect();
+      this.monitorSource = null;
+    }
+  }
+
+  private startSegments(startAtMs: number, startPositionMs: number, serverNowMs: number): void {
+    // 刷新/接管场景：控制面已有播放中的曲目而本机没有当前缓冲时，
+    // 以刚加载的文件充当当前曲目（界面上有对应提示，见 RoomPage host-audio-missing）。
+    if (!this.currentBuffer && this.pendingBuffer) {
+      this.currentBuffer = this.pendingBuffer;
+      this.currentTrackId = this.pending?.trackId ?? this.currentTrackId;
+      this.pendingBuffer = null;
+    }
+    if (!this.ctx || !this.currentBuffer) return;
+    this.stopAllSegments();
+    const ctx = this.ensureCtx();
+    for (const entry of this.peers.values()) {
+      const timing = computeSegmentTiming({ startAtMs, startPositionMs, serverNowMs, ctxCurrentTimeSec: ctx.currentTime });
+      const node = ctx.createBufferSource();
+      node.buffer = this.currentBuffer;
+      node.connect(entry.session.dest);
+      node.start(timing.whenCtxSec, timing.offsetSec);
+      entry.source = node;
+    }
+    // 房主本地监听（onended 区分自然播完与主动停止，驱动 Phase 3 队列衔接）
+    const monitorTiming = computeSegmentTiming({ startAtMs, startPositionMs, serverNowMs, ctxCurrentTimeSec: ctx.currentTime });
+    const monitorNode = ctx.createBufferSource();
+    monitorNode.buffer = this.currentBuffer;
+    if (this.monitorGain) monitorNode.connect(this.monitorGain);
+    monitorNode.onended = () => {
+      if (this.naturalEndArmed && this.monitorSource === monitorNode) {
+        this.naturalEndArmed = false;
+        this.monitorSource = null;
+        this.onTrackEnded?.();
+      }
+    };
+    monitorNode.start(monitorTiming.whenCtxSec, monitorTiming.offsetSec);
+    this.monitorSource = monitorNode;
+    this.naturalEndArmed = true;
+  }
+
+  /** 屏障统一开始（NEXT_TRACK_START）：currentBuffer 升级为 pendingBuffer 后全员调度。 */
+  startBarrierSegment(startAtMs: number, startPositionMs: number, serverNowMs: number): void {
+    if (this.pendingBuffer) {
+      this.currentBuffer = this.pendingBuffer;
+      this.currentTrackId = this.pending?.trackId ?? this.currentTrackId;
+      this.pendingBuffer = null;
+    }
+    this.startSegments(startAtMs, startPositionMs, serverNowMs);
+  }
+
+  /** 播放/恢复：从权威位置立即出声。 */
+  playFrom(positionMs: number, serverNowMs: number): void {
+    this.startSegments(serverNowMs, positionMs, serverNowMs);
+  }
+
+  /** 暂停：停掉全部音频段（连接保持），房间静音。 */
+  pause(): void {
+    this.stopAllSegments();
+  }
+
+  /** 拖动：立即从新位置重建音频段（不强制成员等待，D-003）。 */
+  seekTo(positionMs: number, serverNowMs: number): void {
+    this.startSegments(serverNowMs, positionMs, serverNowMs);
+  }
+
+  /**
+   * 成员重新同步：只为该成员从当前权威位置重建音频段；
+   * 连接不可用时重建 PeerConnection 并发新 offer（只影响该成员）。
+   */
+  resyncMember(memberId: string, positionMs: number, serverNowMs: number): void {
+    if (!this.ctx || !this.currentBuffer) return;
+    let entry = this.peers.get(memberId);
+    if (!entry || ["failed", "closed", "disconnected"].includes(entry.session.pc.connectionState)) {
+      if (entry) this.closePeer(memberId);
+      const session = this.ensurePeer(memberId);
+      if (!session) return;
+      entry = this.peers.get(memberId);
+      if (!entry) return;
+    }
+    this.stopSource(entry);
+    const timing = computeSegmentTiming({ startAtMs: serverNowMs, startPositionMs: positionMs, serverNowMs, ctxCurrentTimeSec: this.ctx.currentTime });
+    const node = this.ctx.createBufferSource();
+    node.buffer = this.currentBuffer;
+    node.connect(entry.session.dest);
+    node.start(timing.whenCtxSec, timing.offsetSec);
+    entry.source = node;
+  }
+
+  setLocalVolume(volume: number): void {
+    this.localVolume = Math.min(1, Math.max(0, volume));
+    if (this.monitorGain) this.monitorGain.gain.value = this.localVolume;
+  }
+
+  debug(): HostAudioDebug {
+    return {
+      ctxState: this.ctx?.state ?? "none",
+      loadedCurrent: this.currentBuffer != null,
+      loadedPending: this.pending,
+      peers: [...this.peers.entries()].map(([memberId, entry]) => ({
+        memberId,
+        state: entry.session.pc.connectionState,
+        ice: entry.session.pc.iceConnectionState,
+        serving: entry.source != null,
+        destTrackMuted: entry.session.dest.stream.getAudioTracks()[0]?.muted ?? null,
+      })),
+      iceSource: this.ice.source,
+      iceError: this.ice.error,
+      monitorLevel: this.monitorLevel(),
+    };
+  }
+
+  private monitorLevel(): number {
+    const analyser = this.monitorAnalyser;
+    if (!analyser) return 0;
+    const data = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (const v of data) sum += v * v;
+    return Number(Math.sqrt(sum / data.length).toFixed(4));
+  }
+}

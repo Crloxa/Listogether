@@ -1,0 +1,564 @@
+/** 房间页：快照/成员/播放状态展示、房主本地音频控制与成员收听（Phase 2）。
+ * 连接失败、自动播放限制、迟到提示与屏障超时策略的提示是本页的明确职责。 */
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { RoomStore } from "../../transport/ws/room-store";
+import { wireHostMedia, wireMemberMedia, type HostMediaHandle, type MemberMediaHandle } from "../../media/wiring";
+import type { DecodedTrackMeta } from "../../media/local-source/buffer-source";
+import type { MemberAudioDebug } from "../../media/member-audio";
+import { loadSession, clearSession, type RoomSession } from "./session";
+import { roomApi } from "./api";
+import { buildInviteLink } from "./invite";
+import { navigate } from "../../app/router";
+import CopyButton from "../../ui/CopyButton";
+
+const ROLE_LABEL: Record<string, string> = { host: "房主", co_dj: "共同 DJ", listener: "听众" };
+
+const STATUS_LABEL: Record<string, string> = {
+  connecting: "正在连接房间…",
+  connected: "已连接",
+  reconnecting: "连接中断，正在重连…",
+  closed: "连接已断开",
+};
+
+export default function RoomPage({ roomId }: { roomId: string }) {
+  const session = loadSessionGuarded(roomId);
+  if (!session) {
+    return (
+      <main className="page">
+        <h1>房间 {roomId}</h1>
+        <p role="alert" data-testid="session-missing">
+          本页没有有效的房间会话。请从邀请链接重新加入。
+        </p>
+        <a href="/">返回首页</a>
+      </main>
+    );
+  }
+  return <RoomView roomId={roomId} session={session} />;
+}
+
+function loadSessionGuarded(roomId: string): RoomSession | null {
+  return loadSession(roomId);
+}
+
+function RoomView({ roomId, session }: { roomId: string; session: RoomSession }) {
+  const [store] = useState(
+    () =>
+      new RoomStore({
+        roomId,
+        sessionToken: session.sessionToken,
+        memberId: session.memberId,
+        serverTimeMs: session.serverTimeMs,
+        localTimeMs: session.localTimeMs,
+      }),
+  );
+  const state = useSyncExternalStore(store.subscribe, store.getState);
+  const [, setTick] = useState(0);
+  const [locked, setLocked] = useState<boolean | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [loadedTrack, setLoadedTrack] = useState<DecodedTrackMeta | null>(null);
+  const [memberVolume, setMemberVolume] = useState(1);
+  const [memberMuted, setMemberMuted] = useState(false);
+  const [lateDismissedFor, setLateDismissedFor] = useState<string | null>(null);
+
+  // 媒体接线放 ref：500ms 状态刷新循环与渲染读取保持同一实例
+  const hostMediaRef = useRef<HostMediaHandle | null>(null);
+  const memberMediaRef = useRef<MemberMediaHandle | null>(null);
+
+  const room = state.room;
+  const members = room?.members ?? [];
+  // 权威角色来自服务端快照（房主离开会转移）；session.role 只作初始回退。
+  // 媒体接线只依赖角色字符串：快照/成员变化不得重建媒体连接。
+  const selfMember = members.find((m) => m.memberId === session.memberId);
+  const selfRole = selfMember?.role ?? session.role;
+
+  useEffect(() => {
+    store.connect();
+    const timer = setInterval(() => {
+      // 成员侧健康检查：音频连接 failed 时自动触发一次重新同步
+      memberMediaRef.current?.controller.checkHealth();
+      setTick((t) => t + 1);
+    }, 500);
+    return () => {
+      clearInterval(timer);
+      // 卸载≠离开：刷新/关闭页面走 offline 宽限期，保留会话供重连（D-009）
+      store.disconnect();
+    };
+  }, [store]);
+
+  // 仅供本地开发/端到端验证（import.meta.env.DEV，生产构建不含）：
+  // 自动化测试无法操作系统文件选择器，改经此钩子用 URL 注入同一解码路径。
+  useEffect(() => {
+    if (!import.meta.env.DEV || selfRole !== "host") return;
+    const target = window as unknown as {
+      __listoLoadAudio?: (url: string) => Promise<string>;
+    };
+    target.__listoLoadAudio = async (url: string) => {
+      const handle = hostMediaRef.current;
+      if (!handle) throw new Error("房主媒体尚未初始化");
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`读取音频失败：HTTP ${res.status}`);
+      const blob = await res.blob();
+      const name = decodeURIComponent(url.split("/").pop() ?? "e2e.wav");
+      const meta = await handle.controller.loadFile(new File([blob], name, { type: blob.type || "audio/wav" }));
+      setLoadedTrack(meta);
+      const onlineIds = store
+        .getState()
+        .room?.members.filter((m) => m.status === "online" && m.memberId !== session.memberId)
+        .map((m) => m.memberId) ?? [];
+      handle.controller.syncMembers(onlineIds);
+      return meta.title;
+    };
+    return () => {
+      delete target.__listoLoadAudio;
+    };
+  }, [store, selfRole, session.memberId]);
+
+  // 房主/成员媒体接线随角色切换（房主转移后旧房主停止发流，新房主加载文件后接管）
+  useEffect(() => {
+    if (selfRole === "host") {
+      const handle = wireHostMedia(store);
+      hostMediaRef.current = handle;
+      return () => {
+        handle.dispose();
+        hostMediaRef.current = null;
+      };
+    }
+    const handle = wireMemberMedia(store);
+    memberMediaRef.current = handle;
+    return () => {
+      handle.dispose();
+      memberMediaRef.current = null;
+    };
+  }, [store, selfRole]);
+
+  // 调试状态（端到端证据采集用；不含任何凭证），每次刷新循环更新
+  useEffect(() => {
+    const target = window as unknown as { __listo?: unknown };
+    const writeDebug = () => {
+      const s = store.getState();
+      target.__listo = {
+        roomId,
+        memberId: session.memberId,
+        role: s.room?.members.find((m) => m.memberId === session.memberId)?.role ?? session.role,
+        revision: s.room?.revision ?? null,
+        playing: s.room?.playing ?? false,
+        transitionId: s.room?.transitionId ?? null,
+        lateJoin: s.lateJoin,
+        positionMs: Math.round(store.livePositionMs()),
+        serverNowMs: Math.round(store.serverNow()),
+        host: hostMediaRef.current?.controller.debug() ?? null,
+        member: memberMediaRef.current?.controller.debug() ?? null,
+      };
+    };
+    writeDebug();
+    const timer = setInterval(writeDebug, 500);
+    return () => {
+      clearInterval(timer);
+      delete target.__listo;
+    };
+  }, [store, roomId, session.memberId, session.role]);
+
+  useEffect(() => {
+    let cancelled = false;
+    roomApi
+      .info(roomId)
+      .then((info) => {
+        if (!cancelled) setLocked(info.locked);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId]);
+
+  const onlineCount = members.filter((m) => m.status === "online").length;
+  const readyCount = members.filter((m) => m.ready === true).length;
+  const barrier = state.pendingPrepare;
+  const durationMs = room?.currentTrack?.durationMs ?? 0;
+  const positionMs = store.livePositionMs();
+  const hostMedia = hostMediaRef.current;
+  const memberMedia = memberMediaRef.current;
+  const isHost = selfRole === "host";
+  const canPrepare = selfRole === "host" || selfRole === "co_dj";
+
+  // 迟到提示（D-004）：连接建立时歌曲已在播放中才提示，点击重新同步后不再打扰
+  const lateJoin =
+    !isHost && state.lateJoin && room?.transitionId != null && room.transitionId !== lateDismissedFor;
+
+  // 屏障超时（D-011）：deadline 已过仍未全员就绪，房主可强制开始
+  const barrierTimedOut = barrier != null && store.serverNow() > barrier.prepareDeadlineMs;
+
+  const hostDebug = hostMedia?.controller.debug() ?? null;
+  const memberDebug = memberMedia?.controller.debug() ?? null;
+
+  async function withActionError(fn: () => Promise<unknown>) {
+    setActionError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setActionError((err as Error).message || "操作失败");
+    }
+  }
+
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !hostMedia) return;
+    setActionError(null);
+    try {
+      const meta = await hostMedia.controller.loadFile(file);
+      setLoadedTrack(meta);
+      // 加载完成后再 reconcile 一次：早于加载加入的成员也需要建联
+      hostMedia.controller.syncMembers(
+        members.filter((m) => m.status === "online" && m.memberId !== session.memberId).map((m) => m.memberId),
+      );
+    } catch (err) {
+      setLoadedTrack(null);
+      setActionError(`音频解码失败：${(err as Error).message || "浏览器不支持该格式"}`);
+    }
+  }
+
+  function hostPlay() {
+    if (!hostMedia) return;
+    hostMedia.controller.playFrom(Math.round(store.livePositionMs()), store.serverNow());
+    store.play();
+  }
+
+  function hostPause() {
+    if (!hostMedia) return;
+    hostMedia.controller.pause();
+    store.pause();
+  }
+
+  function hostSeek(position: number) {
+    if (!hostMedia) return;
+    hostMedia.controller.seekTo(position, store.serverNow());
+    store.seek(position);
+  }
+
+  function memberResync() {
+    memberMedia?.controller.requestResync();
+    setLateDismissedFor(room?.transitionId ?? lateDismissedFor);
+  }
+
+  function leaveRoom() {
+    clearSession(roomId);
+    store.leave();
+    navigate("/");
+  }
+
+  return (
+    <main className="page">
+      <header className="room-header">
+        <h1>房间 {roomId}</h1>
+        <p>
+          你是 <strong>{session.name}</strong>（{ROLE_LABEL[selfRole] ?? selfRole}） · 在线 {onlineCount}/{members.length}
+        </p>
+        <button type="button" onClick={leaveRoom} data-testid="leave-room">
+          离开房间
+        </button>
+      </header>
+
+      <section aria-live="polite" data-testid="connection-banner" className={`banner status-${state.status}`}>
+        {STATUS_LABEL[state.status] ?? state.status}
+        {state.status === "reconnecting" && `（第 ${state.reconnectAttempt} 次重试）`}
+      </section>
+
+      {state.fatalMessage && (
+        <section role="alert" className="banner fatal" data-testid="fatal-banner">
+          {state.fatalMessage}
+          <div>
+            <a href="/">返回首页</a>
+          </div>
+        </section>
+      )}
+
+      {state.lastError && (
+        <section role="alert" className="banner warn" data-testid="error-banner">
+          操作被拒绝：{state.lastError.message || state.lastError.code}
+        </section>
+      )}
+      {actionError && (
+        <section role="alert" className="banner warn" data-testid="action-error">
+          {actionError}
+        </section>
+      )}
+
+      {lateJoin && (
+        <section className="banner warn" data-testid="late-join-banner">
+          当前歌曲已开始，你从中途加入。点击“重新同步”接入当前音频（不会影响其他成员）。
+        </section>
+      )}
+
+      {isHost && room?.currentTrack && hostDebug && !hostDebug.loadedCurrent && (
+        <section className="banner warn" data-testid="host-audio-missing">
+          房间已有播放中的曲目，但本机尚未加载对应的音频文件，成员将听不到声音。请在下方选择本地文件并通过“下一首”切歌。
+        </section>
+      )}
+
+      <section className="card">
+        <h2>正在播放</h2>
+        {room?.currentTrack ? (
+          <p data-testid="now-playing">
+            《{room.currentTrack.title}》
+            {room.currentTrack.artist ? ` — ${room.currentTrack.artist}` : ""} ·{" "}
+            {room.playing ? "播放中" : "已暂停"} · {formatMs(positionMs)}
+            {durationMs > 0 ? ` / ${formatMs(durationMs)}` : ""}
+          </p>
+        ) : (
+          <p data-testid="now-playing-empty">
+            还没有播放中的歌曲。房主选择本地音频文件后通过“发起下一首”开始第一首歌。
+          </p>
+        )}
+        {barrier && (
+          <p className="banner info" data-testid="barrier-banner">
+            准备下一首：《{barrier.track.title}》· 已就绪 {readyCount}/{onlineCount} ·{" "}
+            {Math.max(0, Math.ceil((barrier.startAtMs - store.serverNow()) / 1000))} 秒后统一开始
+            {barrierTimedOut ? " · 已超过准备截止时间" : ""}
+            {isHost && barrierTimedOut && (
+              <button type="button" onClick={() => store.forceStartBarrier()} data-testid="force-start-btn">
+                立即开始（跳过未就绪成员）
+              </button>
+            )}
+          </p>
+        )}
+        {isHost && (
+          <div className="controls" data-testid="host-controls">
+            <button type="button" onClick={hostPlay} data-testid="play-btn" disabled={!room?.currentTrack}>
+              播放
+            </button>
+            <button type="button" onClick={hostPause} data-testid="pause-btn" disabled={!room?.currentTrack}>
+              暂停
+            </button>
+            <label className="seek">
+              进度
+              <input
+                type="range"
+                min={0}
+                max={durationMs > 0 ? durationMs : 100}
+                value={Math.min(positionMs, durationMs > 0 ? durationMs : positionMs)}
+                disabled={!room?.currentTrack || durationMs === 0}
+                onChange={(e) => hostSeek(Number(e.target.value))}
+                data-testid="seek-slider"
+              />
+            </label>
+            <span className="hint" data-testid="host-audio-status">
+              {hostDebug
+                ? `音频服务：${hostDebug.peers.filter((p) => p.state === "connected").length}/${hostDebug.peers.length} 个连接已建立`
+                : "音频未初始化"}
+            </span>
+          </div>
+        )}
+        {isHost ? (
+          <form
+            className="controls"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!loadedTrack) return;
+              store.prepareNext({
+                trackId: loadedTrack.trackId,
+                title: loadedTrack.title,
+                durationMs: loadedTrack.durationMs,
+              });
+            }}
+            data-testid="prepare-form"
+          >
+            <label className="seek">
+              本地音频
+              <input type="file" accept="audio/*" onChange={handleFileChange} data-testid="audio-file" />
+            </label>
+            {loadedTrack && (
+              <span data-testid="loaded-track">
+                已加载：《{loadedTrack.title}》（{formatMs(loadedTrack.durationMs)}）· 将作为下一首播放
+              </span>
+            )}
+            <button type="submit" data-testid="prepare-btn" disabled={!loadedTrack}>
+              发起下一首（全员对齐）
+            </button>
+            {!loadedTrack && <span className="hint">请先选择本地音频文件（浏览器内解码，不上传）。</span>}
+          </form>
+        ) : (
+          canPrepare && (
+            <p className="hint" data-testid="co-dj-note">
+              音频由房主本地文件提供；共同 DJ 切歌将在 Phase 3 队列接入后开放。
+            </p>
+          )
+        )}
+      </section>
+
+      {!isHost && (
+        <section className="card" data-testid="member-audio">
+          <h2>本机音频</h2>
+          <p data-testid="audio-status">{memberAudioText(memberDebug)}</p>
+          {memberMedia && memberMedia.controller.ctxState !== "running" && (
+            <button type="button" onClick={() => memberMedia.controller.unlock()} data-testid="enable-sound">
+              启用声音
+            </button>
+          )}
+          <div className="controls">
+            <label className="seek">
+              音量
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={memberVolume}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setMemberVolume(v);
+                  memberMedia?.controller.setVolume(v);
+                }}
+                data-testid="volume-slider"
+              />
+            </label>
+            <label className="seek">
+              <input
+                type="checkbox"
+                checked={memberMuted}
+                onChange={(e) => {
+                  setMemberMuted(e.target.checked);
+                  memberMedia?.controller.setMuted(e.target.checked);
+                }}
+                data-testid="mute-toggle"
+              />{" "}
+              静音
+            </label>
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <h2>成员</h2>
+        <ul data-testid="member-list">
+          {members.map((m) => (
+            <li key={m.memberId} data-testid="member-item">
+              <span className={`dot ${m.status}`} aria-label={m.status} />
+              {m.name}
+              <span className="badge">{ROLE_LABEL[m.role] ?? m.role}</span>
+              {barrier && m.ready !== undefined && <span className="badge">{m.ready ? "已就绪 ✓" : "准备中…"}</span>}
+              {isHost && m.memberId !== session.memberId && (
+                <span className="member-admin">
+                  <button
+                    type="button"
+                    onClick={() => withActionError(() => roomApi.kick(roomId, session.sessionToken, m.memberId))}
+                  >
+                    踢出
+                  </button>
+                  {m.role !== "co_dj" && (
+                    <button
+                      type="button"
+                      onClick={() => withActionError(() => roomApi.setRole(roomId, session.sessionToken, m.memberId, "co_dj"))}
+                    >
+                      设为共同 DJ
+                    </button>
+                  )}
+                  {m.role !== "listener" && (
+                    <button
+                      type="button"
+                      onClick={() => withActionError(() => roomApi.setRole(roomId, session.sessionToken, m.memberId, "listener"))}
+                    >
+                      设为听众
+                    </button>
+                  )}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+        {!isHost && (
+          <button type="button" onClick={memberResync} data-testid="resync-btn">
+            重新同步（只影响自己）
+          </button>
+        )}
+      </section>
+
+      {isHost && (
+        <section className="card">
+          <h2>房主管理</h2>
+          {session.inviteToken && (
+            <p>
+              邀请链接：
+              <code data-testid="invite-link">
+                {buildInviteLink(window.location.origin, roomId, session.inviteToken)}
+              </code>{" "}
+              <CopyButton text={buildInviteLink(window.location.origin, roomId, session.inviteToken)} />
+            </p>
+          )}
+          <div className="controls">
+            <button
+              type="button"
+              data-testid="lock-toggle"
+              onClick={() =>
+                withActionError(async () => {
+                  const res = await roomApi.lock(roomId, session.sessionToken, !(locked ?? false));
+                  setLocked(res.locked);
+                })
+              }
+            >
+              {locked ? "解锁房间" : "锁房（停止新成员加入）"}
+            </button>
+            <button
+              type="button"
+              data-testid="close-room"
+              onClick={() => {
+                if (!window.confirm("确定关闭房间？所有成员将被请出。")) return;
+                withActionError(async () => {
+                  await roomApi.close(roomId, session.sessionToken);
+                  clearSession(roomId);
+                  navigate("/");
+                });
+              }}
+            >
+              关闭房间
+            </button>
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <h2>队列</h2>
+        {(room?.queue?.length ?? 0) === 0 ? (
+          <p data-testid="queue-empty">队列为空（点歌与排序在 Phase 3 接入）。</p>
+        ) : (
+          <ol>
+            {room!.queue.map((track) => (
+              <li key={track.trackId}>
+                {track.title}
+                {track.artist ? ` — ${track.artist}` : ""}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section className="card hint" data-testid="autoplay-notice">
+        <h2>关于自动播放限制</h2>
+        <p>
+          浏览器通常会阻止未经交互的自动播放。若进入房间后没有声音，点击“启用声音”（成员）或选择本地文件（房主）
+          即可解锁；音频连接状态见“本机音频”卡片。控制通道的同步不依赖该设置。
+        </p>
+      </section>
+    </main>
+  );
+}
+
+/** 成员音频状态行：把媒体控制器状态翻译成可操作的提示。 */
+function memberAudioText(debug: MemberAudioDebug | null): string {
+  if (!debug || debug.ctxState === "none") return "声音未启用：点击“启用声音”后可收听房主分享的音频。";
+  if (debug.ctxState === "suspended") return "浏览器暂停了声音播放：请点击“启用声音”。";
+  if (debug.pcState === "failed" || debug.pcState === "disconnected" || debug.pcState === "closed") {
+    return "音频连接中断：正在尝试自动恢复；若长时间无声请点击“重新同步”。";
+  }
+  if (debug.pcState === "connected" && debug.hasTrack) {
+    return debug.muted ? "音频已连接（已静音）。" : "音频已连接，正在接收房主分享的音频。";
+  }
+  if (debug.pcState === "connected") return "音频通道已建立，等待音频流…";
+  return "正在建立音频连接…";
+}
+
+export function formatMs(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}

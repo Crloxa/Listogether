@@ -1,0 +1,43 @@
+{
+  "capturedAt": "2026-09-06T04:51:51.557Z",
+  "host": {
+    "host": {
+      "ctxState": "running",
+      "iceError": null,
+      "iceSource": "default",
+      "loadedCurrent": true,
+      "loadedPending": {
+        "durationMs": 120000,
+        "title": "e2e-testtone",
+        "trackId": "local-1a0750eeab9-a0402e1b"
+      },
+      "monitorLevel": 0.2823,
+      "peers": [
+        {
+          "destTrackMuted": false,
+          "ice": "connected",
+          "memberId": "0f8103df7e7e7c176826d6dbc650aa26",
+          "serving": true,
+          "state": "connected"
+        },
+        {
+          "destTrackMuted": false,
+          "ice": "connected",
+          "memberId": "4c72bce422ed0f972e8e5014260d498a",
+          "serving": true,
+          "state": "connected"
+        }
+      ]
+    },
+    "lateJoin": true,
+    "member": null,
+    "memberId": "cb3c5a2e0cc20b4754fd398d0844f80b",
+    "playing": true,
+    "positionMs": 31434,
+    "revision": 26,
+    "role": "host",
+    "roomId": "c6498f52830334295e2d72f32385316b",
+    "serverNowMs": 1788670311464,
+    "transitionId": "4899dd7250c6a3ebce38897ebfd199c8"
+  }
+}

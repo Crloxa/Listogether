@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260906T065818667Z-22144-8896577d3152",
+  "runId": "20260906T065818667Z-22144-8896577d3152",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "baseline_partial",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline_partial: baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "4481a1c11adbdd54ae23f5cc7039a622af0efa5f99852a46265ea40f081f10b5",
+  "rulesVersion": "unavailable",
+  "sessionHash": "8e384d7b22f8a3feb2006e31e6cff408b255057851eebcfeb92d60a124089029",
+  "reportRef": ".mimosa/reports/task-review-sess_4c9f0145-a4a7-4a2b-ab73-ab1f2b64559d-20260906T065818667Z-22144-8896577d3152.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "src/features/room/RoomPage.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/test/room-store.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/test/pages.test.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/test/media-units.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-06T06:58:19.026Z"
+}

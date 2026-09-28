@@ -1,0 +1,187 @@
+// Package protocol 定义房间消息信封与校验规则。
+//
+// canonical schema 在 packages/protocol/schema/envelope.schema.json；
+// 本包的 KnownTypes 通过 parity 测试与 schema 的 type 枚举保持同步。
+// payload 字段级校验由 schema（TS 侧 ajv）负责，Go 侧在 Phase 1 房间逻辑中按事件处理。
+package protocol
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+// ProtocolVersion 是当前协议版本；其他版本拒绝。
+const ProtocolVersion = 1
+
+// 错误码与 schema errorPayload.code 枚举一致。
+const (
+	CodeInvalidMessage     = "INVALID_MESSAGE"
+	CodeUnsupportedVersion = "UNSUPPORTED_VERSION"
+	CodeUnknownType        = "UNKNOWN_TYPE"
+	CodeStaleRevision      = "STALE_REVISION"
+	CodeUnauthorized       = "UNAUTHORIZED"
+	CodeInvalidToken       = "INVALID_TOKEN"
+	CodeRoomNotFound       = "ROOM_NOT_FOUND"
+	CodeRoomFull           = "ROOM_FULL"
+	CodeRoomLocked         = "ROOM_LOCKED"
+	CodeRateLimited        = "RATE_LIMITED"
+	CodeDuplicateTrack     = "DUPLICATE_TRACK"
+	CodeLyricsTooLarge     = "LYRICS_TOO_LARGE"
+	CodeInternal           = "INTERNAL"
+)
+
+// 事件类型常量；与 KnownTypes 及 canonical schema 的 type 枚举一致。
+const (
+	TypeRoomSnapshot     = "ROOM_SNAPSHOT"
+	TypeMemberJoined     = "MEMBER_JOINED"
+	TypeMemberLeft       = "MEMBER_LEFT"
+	TypePlay             = "PLAY"
+	TypePause            = "PAUSE"
+	TypeSeek             = "SEEK"
+	TypeNextTrackPrepare = "NEXT_TRACK_PREPARE"
+	TypeReady            = "READY"
+	TypeNextTrackStart   = "NEXT_TRACK_START"
+	TypeResyncRequest    = "RESYNC_REQUEST"
+	TypeWebrtcOffer      = "WEBRTC_OFFER"
+	TypeWebrtcAnswer     = "WEBRTC_ANSWER"
+	TypeIceCandidate     = "ICE_CANDIDATE"
+	TypeHeartbeat        = "HEARTBEAT"
+	TypeError            = "ERROR"
+
+	// Phase 3：队列、点歌与聊天（docs/03-technical-design.md）。
+	TypeLibraryAdd    = "LIBRARY_ADD"
+	TypeLibraryRemove = "LIBRARY_REMOVE"
+	TypeQueueRequest  = "QUEUE_REQUEST"
+	TypeQueueApprove  = "QUEUE_APPROVE"
+	TypeQueueReject   = "QUEUE_REJECT"
+	TypeQueueRemove   = "QUEUE_REMOVE"
+	TypeQueueReorder  = "QUEUE_REORDER"
+	TypeQueueClear    = "QUEUE_CLEAR"
+	TypeSkipVote      = "SKIP_VOTE"
+	TypeTrackFinished = "TRACK_FINISHED"
+	TypePlayMode      = "PLAY_MODE"
+	TypeChatMessage   = "CHAT_MESSAGE"
+	TypeChatHistory   = "CHAT_HISTORY"
+
+	// Phase 4：歌词（D-017）。host 发布 → Relay 校验/缓存/转发。
+	TypeTrackLyrics = "TRACK_LYRICS"
+)
+
+// KnownTypes 是 MVP 全部事件类型（docs/03-technical-design.md）。
+var KnownTypes = map[string]struct{}{
+	TypeRoomSnapshot:     {},
+	TypeMemberJoined:     {},
+	TypeMemberLeft:       {},
+	TypePlay:             {},
+	TypePause:            {},
+	TypeSeek:             {},
+	TypeNextTrackPrepare: {},
+	TypeReady:            {},
+	TypeNextTrackStart:   {},
+	TypeResyncRequest:    {},
+	TypeWebrtcOffer:      {},
+	TypeWebrtcAnswer:     {},
+	TypeIceCandidate:     {},
+	TypeHeartbeat:        {},
+	TypeError:            {},
+
+	TypeLibraryAdd:    {},
+	TypeLibraryRemove: {},
+	TypeQueueRequest:  {},
+	TypeQueueApprove:  {},
+	TypeQueueReject:   {},
+	TypeQueueRemove:   {},
+	TypeQueueReorder:  {},
+	TypeQueueClear:    {},
+	TypeSkipVote:      {},
+	TypeTrackFinished: {},
+	TypePlayMode:      {},
+	TypeChatMessage:   {},
+	TypeChatHistory:   {},
+	TypeTrackLyrics:   {},
+}
+
+// Envelope 是控制面消息统一信封。
+type Envelope struct {
+	V            int             `json:"v"`
+	Type         string          `json:"type"`
+	EventID      string          `json:"eventId"`
+	RoomRevision int64           `json:"roomRevision"`
+	SenderID     string          `json:"senderId"`
+	SentAtMs     int64           `json:"sentAtMs"`
+	Payload      json.RawMessage `json:"payload"`
+}
+
+// ProtocolError 是带错误码的协议错误。
+type ProtocolError struct {
+	Code    string
+	Message string
+}
+
+func (e *ProtocolError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Validate 校验信封结构和元数据；payload 内容由 schema/房间逻辑负责。
+func Validate(e *Envelope) *ProtocolError {
+	if e.V != ProtocolVersion {
+		return &ProtocolError{Code: CodeUnsupportedVersion, Message: fmt.Sprintf("只支持 v%d，收到 v%d", ProtocolVersion, e.V)}
+	}
+	if _, ok := KnownTypes[e.Type]; !ok {
+		return &ProtocolError{Code: CodeUnknownType, Message: "未知事件类型"}
+	}
+	if e.EventID == "" || e.SenderID == "" {
+		return &ProtocolError{Code: CodeInvalidMessage, Message: "eventId 和 senderId 必填"}
+	}
+	if e.RoomRevision < 0 || e.SentAtMs < 0 || len(e.Payload) == 0 {
+		return &ProtocolError{Code: CodeInvalidMessage, Message: "roomRevision、sentAtMs 和 payload 必须合法"}
+	}
+	if trimmed := bytes.TrimSpace(e.Payload); len(trimmed) == 0 || trimmed[0] != '{' {
+		return &ProtocolError{Code: CodeInvalidMessage, Message: "payload 必须是 JSON 对象"}
+	}
+	return nil
+}
+
+// IsStale 判断信封携带的房间版本是否落后于服务端当前版本；
+// 落后的写操作在 Phase 1 中拒绝（STALE_REVISION）。
+func IsStale(e *Envelope, currentRevision int64) bool {
+	return e.RoomRevision < currentRevision
+}
+
+// NewErrorEnvelope 构造服务端发出的 ERROR 事件。
+func NewErrorEnvelope(code, message, refEventID string, nowMs int64) Envelope {
+	payload := map[string]string{"code": code}
+	if message != "" {
+		payload["message"] = message
+	}
+	if refEventID != "" {
+		payload["refEventId"] = refEventID
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		raw = []byte(`{"code":"INTERNAL"}`)
+	}
+	return Envelope{
+		V:            ProtocolVersion,
+		Type:         "ERROR",
+		EventID:      NewEventID(),
+		RoomRevision: 0,
+		SenderID:     "relay",
+		SentAtMs:     nowMs,
+		Payload:      raw,
+	}
+}
+
+// NewEventID 生成 128 位随机十六进制事件 ID。
+func NewEventID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand 失败极罕见；退化为纳秒时间戳保证 ID 非空且互异
+		return fmt.Sprintf("evt-%016x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}

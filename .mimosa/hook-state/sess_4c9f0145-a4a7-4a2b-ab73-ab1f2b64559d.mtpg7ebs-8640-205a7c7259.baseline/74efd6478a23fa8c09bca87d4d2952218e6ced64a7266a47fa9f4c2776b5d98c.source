@@ -1,0 +1,300 @@
+// payload.go 定义各事件 payload 的 Go 结构与严格解码。
+// 字段边界与 packages/protocol/schema/envelope.schema.json 保持一致；
+// 跨字段约束（startAtMs > prepareDeadlineMs）由本包 DecodeNextTrackPrepare 校验。
+package protocol
+
+import (
+	"bytes"
+	"encoding/json"
+)
+
+// 与 canonical schema 一致的字段长度/取值边界。
+const (
+	MaxMemberIDLen     = 64
+	MaxNameLen         = 64
+	MaxRoomIDLen       = 64
+	MaxTrackIDLen      = 128
+	MaxTitleLen        = 512
+	MaxArtistLen       = 512
+	MaxTransitionIDLen = 128
+	MaxSDPLen          = 65536
+	MaxCandidateLen    = 2048
+	MaxQueueLen        = 1000
+	MaxMembersCap      = 256
+)
+
+// Track 与 schema 的 track 定义一致。
+type Track struct {
+	TrackID    string `json:"trackId"`
+	Title      string `json:"title"`
+	Artist     string `json:"artist,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+}
+
+// Validate 校验 track 字段边界；未知时长用 0 表示。
+func (t *Track) Validate() *ProtocolError {
+	if err := bounded("trackId", t.TrackID, 1, MaxTrackIDLen); err != nil {
+		return err
+	}
+	if err := bounded("title", t.Title, 1, MaxTitleLen); err != nil {
+		return err
+	}
+	if err := bounded("artist", t.Artist, 0, MaxArtistLen); err != nil {
+		return err
+	}
+	if t.DurationMs < 0 {
+		return invalid("durationMs 不能为负")
+	}
+	return nil
+}
+
+// Member 是服务端广播的成员视图。
+type Member struct {
+	MemberID string `json:"memberId"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	Status   string `json:"status"`
+	// Ready 仅在下一首准备屏障期间有意义；屏障外为 nil 不输出。
+	Ready *bool `json:"ready,omitempty"`
+}
+
+// PendingPrepareInfo 是快照中携带的进行中屏障信息（Phase 2：重连成员恢复屏障元数据）。
+type PendingPrepareInfo struct {
+	TransitionID      string `json:"transitionId"`
+	Track             Track  `json:"track"`
+	StartPositionMs   int64  `json:"startPositionMs"`
+	PrepareDeadlineMs int64  `json:"prepareDeadlineMs"`
+	StartAtMs         int64  `json:"startAtMs"`
+}
+
+// RoomSnapshot 是房间状态快照 payload。
+type RoomSnapshot struct {
+	RoomID         string              `json:"roomId"`
+	Revision       int64               `json:"revision"`
+	Playing        bool                `json:"playing"`
+	PositionMs     int64               `json:"positionMs"`
+	CurrentTrack   *Track              `json:"currentTrack"`
+	TransitionID   *string             `json:"transitionId"`
+	StartAtMs      *int64              `json:"startAtMs"`
+	PendingPrepare *PendingPrepareInfo `json:"pendingPrepare,omitempty"`
+	Queue          []Track             `json:"queue"`
+	Members        []Member            `json:"members"`
+}
+
+// ---- 客户端 -> 服务端 payload ----
+
+type PositionPayload struct {
+	PositionMs int64 `json:"positionMs"`
+}
+
+type HeartbeatPayload struct {
+	ClientTimeMs int64 `json:"clientTimeMs"`
+}
+
+type ReadyPayload struct {
+	TransitionID string `json:"transitionId"`
+}
+
+type NextTrackPreparePayload struct {
+	TransitionID      string `json:"transitionId"`
+	Track             Track  `json:"track"`
+	StartPositionMs   int64  `json:"startPositionMs"`
+	PrepareDeadlineMs int64  `json:"prepareDeadlineMs"`
+	StartAtMs         int64  `json:"startAtMs"`
+}
+
+type ResyncRequestPayload struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type WebrtcSdpPayload struct {
+	ToMemberID string `json:"toMemberId"`
+	Sdp        string `json:"sdp"`
+}
+
+type IceCandidatePayload struct {
+	ToMemberID string `json:"toMemberId"`
+	Candidate  string `json:"candidate"`
+}
+
+// ---- 服务端 -> 客户端 payload ----
+
+type MemberJoinedPayload struct {
+	Member Member `json:"member"`
+}
+
+type MemberLeftPayload struct {
+	MemberID string `json:"memberId"`
+	Reason   string `json:"reason"`
+}
+
+type NextTrackStartPayload struct {
+	TransitionID string `json:"transitionId"`
+	StartAtMs    int64  `json:"startAtMs"`
+}
+
+// DecodeNextTrackStart 解析 NEXT_TRACK_START 的 payload。
+// 服务端发出的广播与房主在屏障超时后的强制开始共用该 payload。
+func DecodeNextTrackStart(data json.RawMessage) (*NextTrackStartPayload, *ProtocolError) {
+	var p NextTrackStartPayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if perr := bounded("transitionId", p.TransitionID, 1, MaxTransitionIDLen); perr != nil {
+		return nil, perr
+	}
+	if p.StartAtMs < 0 {
+		return nil, invalid("startAtMs 不能为负")
+	}
+	return &p, nil
+}
+
+// DecodePosition 解析 PLAY/PAUSE/SEEK 的 payload。
+func DecodePosition(data json.RawMessage) (*PositionPayload, *ProtocolError) {
+	var p PositionPayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if p.PositionMs < 0 {
+		return nil, invalid("positionMs 不能为负")
+	}
+	return &p, nil
+}
+
+// DecodeHeartbeat 解析 HEARTBEAT 的 payload。
+func DecodeHeartbeat(data json.RawMessage) (*HeartbeatPayload, *ProtocolError) {
+	var p HeartbeatPayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if p.ClientTimeMs < 0 {
+		return nil, invalid("clientTimeMs 不能为负")
+	}
+	return &p, nil
+}
+
+// DecodeReady 解析 READY 的 payload。
+func DecodeReady(data json.RawMessage) (*ReadyPayload, *ProtocolError) {
+	var p ReadyPayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if perr := bounded("transitionId", p.TransitionID, 1, MaxTransitionIDLen); perr != nil {
+		return nil, perr
+	}
+	return &p, nil
+}
+
+// DecodeNextTrackPrepare 解析 NEXT_TRACK_PREPARE 并校验跨字段时间约束。
+func DecodeNextTrackPrepare(data json.RawMessage) (*NextTrackPreparePayload, *ProtocolError) {
+	var p NextTrackPreparePayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if perr := bounded("transitionId", p.TransitionID, 1, MaxTransitionIDLen); perr != nil {
+		return nil, perr
+	}
+	if perr := p.Track.Validate(); perr != nil {
+		return nil, perr
+	}
+	if p.StartPositionMs < 0 || p.PrepareDeadlineMs < 0 || p.StartAtMs < 0 {
+		return nil, invalid("时间字段不能为负")
+	}
+	if p.StartAtMs <= p.PrepareDeadlineMs {
+		return nil, invalid("startAtMs 必须晚于 prepareDeadlineMs")
+	}
+	return &p, nil
+}
+
+var resyncReasons = map[string]struct{}{
+	"late_join": {},
+	"drift":     {},
+	"stalled":   {},
+	"manual":    {},
+}
+
+// DecodeResyncRequest 解析 RESYNC_REQUEST 的 payload；reason 可省略。
+func DecodeResyncRequest(data json.RawMessage) (*ResyncRequestPayload, *ProtocolError) {
+	var p ResyncRequestPayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if p.Reason != "" {
+		if _, ok := resyncReasons[p.Reason]; !ok {
+			return nil, invalid("未知的 resync 原因")
+		}
+	}
+	return &p, nil
+}
+
+// DecodeWebrtcSdp 解析 WEBRTC_OFFER/WEBRTC_ANSWER 的 payload。
+func DecodeWebrtcSdp(data json.RawMessage) (*WebrtcSdpPayload, *ProtocolError) {
+	var p WebrtcSdpPayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if perr := bounded("toMemberId", p.ToMemberID, 1, MaxMemberIDLen); perr != nil {
+		return nil, perr
+	}
+	if perr := bounded("sdp", p.Sdp, 1, MaxSDPLen); perr != nil {
+		return nil, perr
+	}
+	return &p, nil
+}
+
+// DecodeIceCandidate 解析 ICE_CANDIDATE 的 payload；candidate 允许空串（end-of-candidates）。
+func DecodeIceCandidate(data json.RawMessage) (*IceCandidatePayload, *ProtocolError) {
+	var p IceCandidatePayload
+	if perr := decodeStrict(data, &p); perr != nil {
+		return nil, perr
+	}
+	if perr := bounded("toMemberId", p.ToMemberID, 1, MaxMemberIDLen); perr != nil {
+		return nil, perr
+	}
+	if perr := bounded("candidate", p.Candidate, 0, MaxCandidateLen); perr != nil {
+		return nil, perr
+	}
+	return &p, nil
+}
+
+// decodeStrict 严格解码 payload：未知字段与尾部数据都拒绝（对应 schema additionalProperties:false）。
+func decodeStrict(data []byte, v any) *ProtocolError {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return invalid("payload 字段不合法或包含未知字段")
+	}
+	if dec.More() {
+		return invalid("payload 包含多余数据")
+	}
+	return nil
+}
+
+func bounded(field, value string, min, max int) *ProtocolError {
+	if len(value) < min || len(value) > max {
+		return invalid("字段 " + field + " 长度必须在 " + itoa(min) + ".." + itoa(max))
+	}
+	return nil
+}
+
+func invalid(msg string) *ProtocolError {
+	return &ProtocolError{Code: CodeInvalidMessage, Message: msg}
+}
+
+func itoa(n int) string {
+	return jsonNumber(n)
+}
+
+func jsonNumber(n int) string {
+	b, _ := json.Marshal(n)
+	return string(b)
+}
+
+// MarshalPayload 把任意 payload 结构编码为 RawMessage；编码失败回退为最小合法对象。
+func MarshalPayload(v any) json.RawMessage {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return raw
+}

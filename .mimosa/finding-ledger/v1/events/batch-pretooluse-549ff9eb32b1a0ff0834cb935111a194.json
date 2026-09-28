@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "pretooluse-549ff9eb32b1a0ff0834cb935111a194",
+  "runId": null,
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "PreToolUse"
+  },
+  "revision": null,
+  "diffHash": null,
+  "rulesVersion": null,
+  "sessionHash": "1b6966e1cb9824dc7ddab23207dce44b9298cd665d655a22042ec9cb34c9527f",
+  "reportRef": null,
+  "events": [
+    {
+      "eventId": "hook-28c82daabf5c3918a1940e5ae525f318",
+      "findingId": "mimosa-7ae9be0a3db261bf84e5b953",
+      "type": "finding_blocked",
+      "at": "2026-09-11T19:06:26.397Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/room/lyrics.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 79,
+      "endLine": 79,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952"
+      },
+      "sequence": 0
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [],
+  "recordedAt": "2026-09-11T19:06:26.780Z"
+}

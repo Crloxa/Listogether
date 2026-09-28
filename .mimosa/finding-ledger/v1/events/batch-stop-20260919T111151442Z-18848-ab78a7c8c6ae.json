@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260919T111151442Z-18848-ab78a7c8c6ae",
+  "runId": "20260919T111151442Z-18848-ab78a7c8c6ae",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "38d642ecf8170e8611062d400da5c87af9be1b18658a8e05177994ceb35abb6a",
+  "rulesVersion": "unavailable",
+  "sessionHash": "1b6966e1cb9824dc7ddab23207dce44b9298cd665d655a22042ec9cb34c9527f",
+  "reportRef": ".mimosa/reports/task-review-sess_a16da887-f386-4dab-bec7-5d05b42286a9-20260919T111151442Z-18848-ab78a7c8c6ae.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-7312c55937831f3debad21a5",
+    "mimosa-fc602a6e0d0a708c9c715267"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "apps/web/src/features/queue/history.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/bandwidth.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/transport/ws/room-store.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/RoomPage.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/library.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/test/phase45-wrapup.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/use-host-library.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-19T11:11:51.819Z"
+}

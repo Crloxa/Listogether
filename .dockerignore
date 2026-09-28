@@ -1,0 +1,15 @@
+# Docker 构建上下文裁剪：只保留构建所需源码
+node_modules
+**/node_modules
+dist
+**/dist
+docs
+scripts
+tests
+*.log
+.git
+.env
+.env.local
+apps/relay/bin
+apps/web/public
+README.md

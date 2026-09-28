@@ -1,0 +1,22 @@
+{
+  "name": "@listogether/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Listogether 跨应用工具：日志脱敏等（类型常量在 @listogether/protocol）",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

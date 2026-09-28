@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20260911T175603907Z-28544-15c6ce4b85aa",
+  "runStatus": "inconclusive",
+  "errors": [
+    "candidate-select:apps/relay/internal/ws/handler_test.go: candidate_limit_exceeded: 2 changed reviewable file(s) were not scanned because the limit is 20",
+    "baseline-read:apps/web/src/ui/format.ts: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:apps/web/src/features/room/use-host-library.ts: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:apps/web/src/features/chat/ChatPanel.tsx: baseline_snapshot_unreadable: file is missing from task baseline"
+  ],
+  "target": ".",
+  "revision": null,
+  "diffHash": "93beea3db0a79a6b126286e1eab039944f0ec42bfae51262abf64aeae12f9ea2",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-09-11T17:56:03.907Z",
+  "timing": {
+    "startedAt": "2026-09-11T17:56:01.566Z",
+    "completedAt": "2026-09-11T17:56:03.907Z",
+    "durationMs": 2341
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 1,
+    "bySeverity": {
+      "high": 1
+    },
+    "byStatus": {
+      "candidate": 1
+    }
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "candidate_limit_exceeded": 1,
+      "baseline_snapshot_unreadable": 3,
+      "project_check_failed": 4
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_3e98c7ee-4b90-41e0-a381-0cc49ee57595-20260911T175603907Z-28544-15c6ce4b85aa.json"
+}

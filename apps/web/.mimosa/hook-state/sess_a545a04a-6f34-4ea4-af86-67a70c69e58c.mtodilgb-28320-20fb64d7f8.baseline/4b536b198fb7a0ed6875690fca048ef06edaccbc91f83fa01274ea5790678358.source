@@ -1,0 +1,40 @@
+import { render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import App from "../app/App";
+import RelayHealth from "../app/RelayHealth";
+import { stubRelayHealth } from "./helpers";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("App", () => {
+  it("渲染标题、Phase 0 骨架说明和 Relay 状态", async () => {
+    stubRelayHealth({ status: "ok", version: "0.0.1" });
+    render(<App />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Listogether");
+    expect(screen.getByText(/Phase 0 工程骨架/)).toBeInTheDocument();
+    expect(await screen.findByText(/Relay 已连接/)).toBeInTheDocument();
+  });
+});
+
+describe("RelayHealth", () => {
+  it("healthz 正常时显示已连接和版本", async () => {
+    stubRelayHealth({ status: "ok", version: "0.0.1" });
+    render(<RelayHealth />);
+    expect(await screen.findByText(/Relay 已连接（版本 0.0.1）/)).toBeInTheDocument();
+  });
+
+  it("healthz 不可达时显示可操作的失败提示", async () => {
+    stubRelayHealth(null, new Error("connection refused"));
+    render(<RelayHealth />);
+    expect(await screen.findByText(/Relay 无法连接/)).toBeInTheDocument();
+    expect(screen.getByText(/请确认 apps\/relay 已启动/)).toBeInTheDocument();
+  });
+
+  it("healthz 返回非 ok 状态时按失败处理", async () => {
+    stubRelayHealth({ status: "degraded" });
+    render(<RelayHealth />);
+    expect(await screen.findByText(/Relay 无法连接/)).toBeInTheDocument();
+  });
+});

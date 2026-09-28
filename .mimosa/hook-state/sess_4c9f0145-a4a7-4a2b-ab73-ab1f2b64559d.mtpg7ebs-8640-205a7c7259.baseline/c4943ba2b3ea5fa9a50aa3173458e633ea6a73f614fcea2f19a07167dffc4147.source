@@ -1,0 +1,22 @@
+{
+  "name": "@listogether/media",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Listogether 媒体接口：可定位音频源与漂移判断（Phase 2 实现）",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

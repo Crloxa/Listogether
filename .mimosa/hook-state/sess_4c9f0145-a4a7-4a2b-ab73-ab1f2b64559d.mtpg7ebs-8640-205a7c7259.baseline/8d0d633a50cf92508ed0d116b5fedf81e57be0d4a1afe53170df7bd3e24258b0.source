@@ -1,0 +1,260 @@
+/**
+ * 成员音频控制器（D-011）：
+ * - 用户手势解锁 AudioContext（自动播放限制的显式入口）；
+ * - 应答房主 offer，远端轨道接入 本地音频图（Analyser → Gain → destination）；
+ * - READY 门控：PeerConnection connected 且远端轨道就绪才上报；
+ * - 健康检查：连接 failed 自动触发一次重新同步；重新同步丢弃本地音频图等待房主重建。
+ */
+import type { ResyncReason } from "@listogether/protocol";
+import { parseIceServers } from "./webrtc/ice-config";
+import { MemberPeerManager } from "./webrtc/member-peer";
+
+export interface MemberMediaDeps {
+  /** 服务器时钟估计值。 */
+  serverNowMs(): number;
+  /** 当前歌曲的统一开始时间；非屏障播放为 null。 */
+  currentSongStartAtMs(): number | null;
+  sendResync(reason: ResyncReason): void;
+  notifyBarrierMediaReady(): void;
+  /** 发送 WEBRTC_ANSWER（sdp）或 ICE_CANDIDATE（candidate）到目标成员。 */
+  sendSignaling(type: "WEBRTC_ANSWER" | "ICE_CANDIDATE", toMemberId: string, value: string): void;
+}
+
+export interface MemberAudioDebug {
+  ctxState: "none" | AudioContextState;
+  pcState: RTCPeerConnectionState | "none";
+  ice: RTCIceConnectionState | "none";
+  hasTrack: boolean;
+  remoteTrackMuted: boolean | null;
+  level: number;
+  firstAudioLagMs: number | null;
+  autoResyncUsed: boolean;
+  volume: number;
+  muted: boolean;
+}
+
+/** 音频电平超过该值视为“已出声”（用于首音滞后测量与断流判断）。 */
+const AUDIBLE_RMS_THRESHOLD = 0.008;
+const RMS_SAMPLE_INTERVAL_MS = 250;
+
+export class MemberAudioController {
+  private ctx: AudioContext | null = null;
+  private peers: MemberPeerManager;
+  private srcNode: MediaStreamAudioSourceNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private gainNode: GainNode | null = null;
+  private remoteStream: MediaStream | null = null;
+  /**
+   * Chromium 要求远端 MediaStream 先被 <audio> 元素消费以启动轨道解码管线，
+   * 否则 MediaStreamAudioSourceNode 恒为静音（端到端实测确认）。
+   * 该元素保持 muted：不直接外放，实际出声与音量控制仍走下方 WebAudio 图。
+   */
+  private pipelineEl: HTMLAudioElement | null = null;
+  private hasTrack = false;
+  private firstAudioLagMs: number | null = null;
+  private rmsTimer: ReturnType<typeof setInterval> | null = null;
+  private volume = 1;
+  private muted = false;
+  private autoResyncUsed = false;
+  private readonly ice = parseIceServers((import.meta.env.VITE_ICE_SERVERS as string | undefined) ?? null);
+
+  constructor(private readonly deps: MemberMediaDeps) {
+    this.peers = new MemberPeerManager({
+      iceServers: this.ice.servers,
+      sendAnswer: (to, sdp) => this.deps.sendSignaling("WEBRTC_ANSWER", to, sdp),
+      sendCandidate: (to, cand) => this.deps.sendSignaling("ICE_CANDIDATE", to, cand),
+      onRemoteTrack: (stream) => this.attachRemoteTrack(stream),
+      onConnectionStateChange: (state) => {
+        if (state === "connected") this.evaluateReady();
+      },
+    });
+  }
+
+  // ---- AudioContext 解锁（用户手势） ----
+
+  /** 在用户手势内调用；重复点击等价于再次 resume。 */
+  unlock(): void {
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      this.gainNode = this.ctx.createGain();
+      this.gainNode.gain.value = this.muted ? 0 : this.volume;
+      this.gainNode.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === "suspended") void this.ctx.resume();
+  }
+
+  get unlocked(): boolean {
+    return this.ctx != null;
+  }
+
+  get ctxState(): AudioContextState | "none" {
+    return this.ctx?.state ?? "none";
+  }
+
+  // ---- 信令 ----
+
+  handleOffer(fromMemberId: string, sdp: string): void {
+    this.autoResyncUsed = false;
+    void this.peers.handleOffer(fromMemberId, sdp).catch(() => {
+      /* 应答失败：健康检查或再次重新同步触发重建 */
+    });
+  }
+
+  handleCandidate(candidate: string): void {
+    void this.peers.handleCandidate(candidate);
+  }
+
+  private attachRemoteTrack(stream: MediaStream): void {
+    if (!this.ctx) this.unlock();
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.detachGraph();
+    this.remoteStream = stream;
+    this.pipelineEl = document.createElement("audio");
+    this.pipelineEl.autoplay = true;
+    this.pipelineEl.muted = true;
+    this.pipelineEl.srcObject = stream;
+    void this.pipelineEl.play().catch(() => {
+      /* 元素未播放不阻断 WebAudio 路径，健康检查会覆盖连接问题 */
+    });
+    const src = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    const gain = this.gainNode ?? ctx.createGain();
+    gain.gain.value = this.muted ? 0 : this.volume;
+    this.gainNode = gain;
+    src.connect(analyser);
+    analyser.connect(gain);
+    gain.connect(ctx.destination);
+    this.srcNode = src;
+    this.analyser = analyser;
+    this.hasTrack = true;
+    this.startRmsSampling();
+  }
+
+  private detachGraph(): void {
+    this.stopRmsSampling();
+    this.srcNode?.disconnect();
+    this.analyser?.disconnect();
+    if (this.pipelineEl) {
+      this.pipelineEl.pause();
+      this.pipelineEl.srcObject = null;
+      this.pipelineEl.remove();
+      this.pipelineEl = null;
+    }
+    this.srcNode = null;
+    this.analyser = null;
+    this.remoteStream = null;
+    this.hasTrack = false;
+    this.firstAudioLagMs = null;
+  }
+
+  // ---- READY 门控 ----
+
+  gateReady(): boolean {
+    return this.peers.connectionState === "connected" && this.hasTrack;
+  }
+
+  /** 屏障激活或连接状态变化时调用：门控通过则上报 READY（store 内去重）。 */
+  evaluateReady(): void {
+    if (this.gateReady()) this.deps.notifyBarrierMediaReady();
+  }
+
+  // ---- 重新同步与健康 ----
+
+  /**
+   * 手动重新同步（只影响自己）：保留连接与本地音频图，向房主请求从当前位置重建音频段。
+   * 不主动关闭 PeerConnection——房主依据自己侧的连接状态决定仅重启音频段还是重建连接；
+   * 若连接确已中断，健康检查会以 reason=stalled 触发重建路径。
+   */
+  requestResync(): void {
+    this.autoResyncUsed = false;
+    this.deps.sendResync("manual");
+  }
+
+  /** 周期健康检查：PC failed 时自动触发一次重新同步（reason=stalled）。 */
+  checkHealth(): void {
+    if (this.peers.connectionState === "failed" && !this.autoResyncUsed) {
+      this.autoResyncUsed = true;
+      this.detachGraph();
+      this.peers.close();
+      this.deps.sendResync("stalled");
+    }
+  }
+
+  // ---- 本地音量（纯客户端行为，不产生房间事件） ----
+
+  setVolume(volume: number): void {
+    this.volume = Math.min(1, Math.max(0, volume));
+    if (this.gainNode && !this.muted) this.gainNode.gain.value = this.volume;
+  }
+
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (this.gainNode) this.gainNode.gain.value = muted ? 0 : this.volume;
+  }
+
+  get volumeValue(): number {
+    return this.volume;
+  }
+
+  get mutedValue(): boolean {
+    return this.muted;
+  }
+
+  // ---- 电平采样：首音滞后 + 静音检测 ----
+
+  private startRmsSampling(): void {
+    this.stopRmsSampling();
+    this.rmsTimer = setInterval(() => {
+      const level = this.currentRms();
+      if (level > AUDIBLE_RMS_THRESHOLD && this.firstAudioLagMs == null) {
+        const startAtMs = this.deps.currentSongStartAtMs();
+        this.firstAudioLagMs = startAtMs == null ? null : this.deps.serverNowMs() - startAtMs;
+      }
+    }, RMS_SAMPLE_INTERVAL_MS);
+  }
+
+  private stopRmsSampling(): void {
+    if (this.rmsTimer) {
+      clearInterval(this.rmsTimer);
+      this.rmsTimer = null;
+    }
+  }
+
+  private currentRms(): number {
+    if (!this.analyser) return 0;
+    const data = new Float32Array(this.analyser.fftSize);
+    this.analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (const v of data) sum += v * v;
+    return Math.sqrt(sum / data.length);
+  }
+
+  debug(): MemberAudioDebug {
+    return {
+      ctxState: this.ctxState,
+      pcState: this.peers.connectionState,
+      ice: this.peers.iceState,
+      hasTrack: this.hasTrack,
+      remoteTrackMuted: this.remoteStream?.getAudioTracks()[0]?.muted ?? null,
+      level: Number(this.currentRms().toFixed(4)),
+      firstAudioLagMs: this.firstAudioLagMs,
+      autoResyncUsed: this.autoResyncUsed,
+      volume: this.volume,
+      muted: this.muted,
+    };
+  }
+
+  release(): void {
+    this.stopRmsSampling();
+    this.detachGraph();
+    this.peers.close();
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
+    }
+    void this.ctx?.close().catch(() => {});
+    this.ctx = null;
+  }
+}

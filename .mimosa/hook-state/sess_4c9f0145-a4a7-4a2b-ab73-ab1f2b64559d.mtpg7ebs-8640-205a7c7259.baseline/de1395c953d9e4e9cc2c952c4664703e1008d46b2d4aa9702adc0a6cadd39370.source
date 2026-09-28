@@ -1,0 +1,151 @@
+import type { ErrorCode } from "./error-codes";
+
+export type EnvelopeType =
+  | "ROOM_SNAPSHOT"
+  | "MEMBER_JOINED"
+  | "MEMBER_LEFT"
+  | "PLAY"
+  | "PAUSE"
+  | "SEEK"
+  | "NEXT_TRACK_PREPARE"
+  | "READY"
+  | "NEXT_TRACK_START"
+  | "RESYNC_REQUEST"
+  | "WEBRTC_OFFER"
+  | "WEBRTC_ANSWER"
+  | "ICE_CANDIDATE"
+  | "HEARTBEAT"
+  | "ERROR";
+
+export interface Envelope<TPayload = Record<string, unknown>> {
+  v: number;
+  type: EnvelopeType;
+  eventId: string;
+  roomRevision: number;
+  senderId: string;
+  sentAtMs: number;
+  payload: TPayload;
+}
+
+export type MemberRole = "host" | "co_dj" | "listener";
+export type MemberStatus = "online" | "offline";
+
+export interface Member {
+  memberId: string;
+  name: string;
+  role: MemberRole;
+  status: MemberStatus;
+  /** 仅在下一首准备屏障期间有意义。 */
+  ready?: boolean;
+}
+
+export interface Track {
+  trackId: string;
+  title: string;
+  artist?: string;
+  /** 未知时长用 0 表示。 */
+  durationMs: number;
+}
+
+/** 快照携带的进行中下一首准备屏障元数据（Phase 2：重连成员恢复屏障信息）。 */
+export interface PendingPrepareInfo {
+  transitionId: string;
+  track: Track;
+  startPositionMs: number;
+  prepareDeadlineMs: number;
+  startAtMs: number;
+}
+
+export interface RoomSnapshot {
+  roomId: string;
+  revision: number;
+  playing: boolean;
+  positionMs: number;
+  currentTrack: Track | null;
+  transitionId: string | null;
+  startAtMs: number | null;
+  /** 进行中的下一首准备屏障；无屏障时缺省或为 null。 */
+  pendingPrepare?: PendingPrepareInfo | null;
+  queue: Track[];
+  members: Member[];
+}
+
+export interface MemberJoinedPayload {
+  member: Member;
+}
+
+export type MemberLeftReason = "left" | "kicked" | "timeout" | "room_closed";
+
+export interface MemberLeftPayload {
+  memberId: string;
+  reason: MemberLeftReason;
+}
+
+export interface PositionPayload {
+  positionMs: number;
+}
+
+export interface NextTrackPreparePayload {
+  transitionId: string;
+  track: Track;
+  startPositionMs: number;
+  prepareDeadlineMs: number;
+  startAtMs: number;
+}
+
+export interface ReadyPayload {
+  transitionId: string;
+}
+
+export interface NextTrackStartPayload {
+  transitionId: string;
+  startAtMs: number;
+}
+
+export type ResyncReason = "late_join" | "drift" | "stalled" | "manual";
+
+export interface ResyncRequestPayload {
+  reason?: ResyncReason;
+}
+
+export interface WebRtcSdpPayload {
+  toMemberId: string;
+  sdp: string;
+}
+
+export interface IceCandidatePayload {
+  toMemberId: string;
+  candidate: string;
+}
+
+export interface HeartbeatPayload {
+  clientTimeMs: number;
+}
+
+export interface ErrorPayload {
+  code: ErrorCode;
+  message?: string;
+  refEventId?: string;
+}
+
+export type EnvelopePayloadMap = {
+  ROOM_SNAPSHOT: RoomSnapshot;
+  MEMBER_JOINED: MemberJoinedPayload;
+  MEMBER_LEFT: MemberLeftPayload;
+  PLAY: PositionPayload;
+  PAUSE: PositionPayload;
+  SEEK: PositionPayload;
+  NEXT_TRACK_PREPARE: NextTrackPreparePayload;
+  READY: ReadyPayload;
+  NEXT_TRACK_START: NextTrackStartPayload;
+  RESYNC_REQUEST: ResyncRequestPayload;
+  WEBRTC_OFFER: WebRtcSdpPayload;
+  WEBRTC_ANSWER: WebRtcSdpPayload;
+  ICE_CANDIDATE: IceCandidatePayload;
+  HEARTBEAT: HeartbeatPayload;
+  ERROR: ErrorPayload;
+};
+
+export type TypedEnvelope<T extends keyof EnvelopePayloadMap = keyof EnvelopePayloadMap> = Envelope<
+  EnvelopePayloadMap[T]
+>;

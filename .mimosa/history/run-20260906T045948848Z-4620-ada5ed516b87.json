@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20260906T045948848Z-4620-ada5ed516b87",
+  "runStatus": "inconclusive",
+  "errors": [
+    "baseline-read:apps/web/src/test/media-units.test.ts: baseline_snapshot_unreadable: file is missing from task baseline",
+    "scan:packages/protocol/src/types.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/relay/internal/protocol/payload.go: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/relay/internal/room/room.go: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/relay/internal/room/playback.go: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/relay/internal/room/room_test.go: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/audio-clock.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/webrtc/ice-config.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/local-source/buffer-source.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/webrtc/peer-targets.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/webrtc/member-peer.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/host-audio.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/member-audio.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/media/wiring.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/transport/ws/room-store.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/vite-env.d.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/features/room/RoomPage.tsx: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/app/HomePage.tsx: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/test/media-units.test.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/test/pages.test.tsx: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+    "scan:apps/web/src/test/room-store.test.ts: scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+  ],
+  "target": ".",
+  "revision": null,
+  "diffHash": "ebea9a8fff091b23d34384ec01d65a056e0181d2c3c8e1c3fce5fc59a130304e",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-09-06T04:59:48.848Z",
+  "timing": {
+    "startedAt": "2026-09-06T04:59:46.353Z",
+    "completedAt": "2026-09-06T04:59:48.848Z",
+    "durationMs": 2495
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 0,
+    "bySeverity": {},
+    "byStatus": {}
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "baseline_snapshot_unreadable": 1,
+      "scanner_failed": 20,
+      "project_check_failed": 21
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_4c9f0145-a4a7-4a2b-ab73-ab1f2b64559d-20260906T045948848Z-4620-ada5ed516b87.json"
+}

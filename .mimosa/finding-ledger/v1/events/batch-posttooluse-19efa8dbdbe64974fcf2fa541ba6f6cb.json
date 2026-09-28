@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "posttooluse-19efa8dbdbe64974fcf2fa541ba6f6cb",
+  "runId": null,
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "PostToolUse"
+  },
+  "revision": null,
+  "diffHash": null,
+  "rulesVersion": null,
+  "sessionHash": "1b6966e1cb9824dc7ddab23207dce44b9298cd665d655a22042ec9cb34c9527f",
+  "reportRef": null,
+  "events": [
+    {
+      "eventId": "hook-ccac0f1bb02142dffe096e4c8460c785",
+      "findingId": "mimosa-7ae9be0a3db261bf84e5b953",
+      "type": "static_fix_verified",
+      "at": "2026-09-11T19:06:54.161Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/room/lyrics.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 79,
+      "endLine": 79,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952"
+      },
+      "sequence": 0
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [],
+  "recordedAt": "2026-09-11T19:06:54.552Z"
+}

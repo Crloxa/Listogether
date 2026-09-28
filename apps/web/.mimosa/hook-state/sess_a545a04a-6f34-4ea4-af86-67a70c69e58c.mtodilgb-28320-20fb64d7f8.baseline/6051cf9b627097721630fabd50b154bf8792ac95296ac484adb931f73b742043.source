@@ -1,0 +1,365 @@
+/** RoomStore：房间状态的唯一客户端来源。
+ * 只由服务端事件更新快照/成员/revision（docs/03-technical-design.md“状态分层”）；
+ * 负责连接、自动重连、心跳和发送动作（PLAY/PAUSE/SEEK/PREPARE/READY/RESYNC）。 */
+import type {
+  Envelope,
+  EnvelopeType,
+  MemberJoinedPayload,
+  MemberLeftPayload,
+  NextTrackPreparePayload,
+  PositionPayload,
+  RoomSnapshot,
+} from "@listogether/protocol";
+import { relayWsUrl } from "../../app/relay-config";
+
+export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "closed";
+
+export interface BarrierState {
+  transitionId: string;
+  track: NextTrackPreparePayload["track"];
+  startPositionMs: number;
+  prepareDeadlineMs: number;
+  startAtMs: number;
+}
+
+export interface RoomStoreState {
+  status: ConnectionStatus;
+  room: RoomSnapshot | null;
+  /** 进行中的下一首屏障；重连后从快照无法恢复曲目元信息（已知限制，见 HANDOFF）。 */
+  pendingPrepare: BarrierState | null;
+  lastError: { code: string; message: string } | null;
+  /** 需要用户重新加入的致命状态（会话失效/房间关闭）。 */
+  fatalMessage: string | null;
+  reconnectAttempt: number;
+}
+
+export interface RoomStoreOptions {
+  roomId: string;
+  sessionToken: string;
+  memberId: string;
+  serverTimeMs: number;
+  localTimeMs: number;
+}
+
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const MAX_BACKOFF_MS = 8_000;
+
+export class RoomStore {
+  private state: RoomStoreState = {
+    status: "connecting",
+    room: null,
+    pendingPrepare: null,
+    lastError: null,
+    fatalMessage: null,
+    reconnectAttempt: 0,
+  };
+
+  private listeners = new Set<() => void>();
+  private ws: WebSocket | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private closedByUser = false;
+  private readyTransitionIds = new Set<string>();
+  /** 播放锚点：anchorPosMs 对应服务器时钟 anchorAtMs。 */
+  private anchorPosMs = 0;
+  private anchorAtServerMs = 0;
+  private playing = false;
+
+  constructor(private opts: RoomStoreOptions) {}
+
+  // ---- useSyncExternalStore 接口 ----
+
+  getState = (): RoomStoreState => this.state;
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  private update(patch: Partial<RoomStoreState>): void {
+    this.state = { ...this.state, ...patch };
+    for (const listener of this.listeners) listener();
+  }
+
+  // ---- 连接管理 ----
+
+  connect(): void {
+    if (this.ws) this.cleanupSocket();
+    if (this.state.fatalMessage || this.closedByUser) return;
+    const url = relayWsUrl(
+      `/ws?roomId=${encodeURIComponent(this.opts.roomId)}&sessionToken=${encodeURIComponent(this.opts.sessionToken)}`,
+    );
+    const ws = new WebSocket(url);
+    this.ws = ws;
+    ws.onopen = () => {
+      if (this.ws !== ws) return;
+      this.update({ status: "connected", reconnectAttempt: 0, lastError: null });
+      this.startHeartbeat();
+    };
+    ws.onmessage = (event) => {
+      if (this.ws !== ws) return;
+      this.handleRawMessage(event.data);
+    };
+    ws.onclose = (event) => {
+      if (this.ws !== ws) return;
+      this.stopHeartbeat();
+      this.ws = null;
+      if (this.closedByUser) {
+        this.update({ status: "closed" });
+        return;
+      }
+      if (event.code === 4001) {
+        this.update({
+          status: "closed",
+          fatalMessage: "会话已失效（可能被移出房间或会话过期），请通过邀请链接重新加入。",
+        });
+        return;
+      }
+      if (event.code === 4002) {
+        this.update({ status: "closed", fatalMessage: "房间已关闭。" });
+        return;
+      }
+      this.scheduleReconnect();
+    };
+    ws.onerror = () => {
+      /* onclose 会随后触发，统一在那里处理 */
+    };
+  }
+
+  /** 离开房间：优雅关闭连接，会话由服务端移除。 */
+  leave(): void {
+    this.closedByUser = true;
+    this.stopHeartbeat();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.ws) {
+      try {
+        this.ws.close(1000, "leave");
+      } catch {
+        /* 连接可能已死 */
+      }
+    }
+    this.update({ status: "closed" });
+  }
+
+  private scheduleReconnect(): void {
+    const attempt = this.state.reconnectAttempt + 1;
+    this.update({ status: "reconnecting", reconnectAttempt: attempt });
+    const backoff = Math.min(MAX_BACKOFF_MS, 500 * 2 ** Math.min(attempt - 1, 4));
+    const jitter = backoff * (0.8 + Math.random() * 0.4);
+    this.reconnectTimer = setTimeout(() => this.connect(), jitter);
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      this.send("HEARTBEAT", { clientTimeMs: Date.now() });
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private cleanupSocket(): void {
+    const ws = this.ws;
+    this.ws = null;
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+      try {
+        ws.close();
+      } catch {
+        /* 已关闭 */
+      }
+    }
+  }
+
+  // ---- 协议应用 ----
+
+  private handleRawMessage(raw: unknown): void {
+    let env: Envelope;
+    try {
+      env = JSON.parse(String(raw)) as Envelope;
+    } catch {
+      return;
+    }
+    if (typeof env.type !== "string") return;
+    if (env.type === "ERROR") {
+      const payload = env.payload as { code?: string; message?: string };
+      this.update({ lastError: { code: payload.code ?? "INTERNAL", message: payload.message ?? "" } });
+      return;
+    }
+    // 任何成功事件都清除上一次的临时错误
+    this.update({ lastError: null });
+    this.revision = env.roomRevision;
+
+    switch (env.type as EnvelopeType) {
+      case "ROOM_SNAPSHOT": {
+        const snap = env.payload as RoomSnapshot;
+        this.playing = snap.playing;
+        this.anchorPosMs = snap.positionMs;
+        this.anchorAtServerMs = this.serverNow();
+        this.update({
+          room: snap,
+          pendingPrepare: this.matchingPending(snap.transitionId),
+        });
+        break;
+      }
+      case "MEMBER_JOINED": {
+        const { member } = env.payload as MemberJoinedPayload;
+        this.mutateRoom((room) => {
+          if (room.members.some((m) => m.memberId === member.memberId)) return room;
+          return { ...room, members: [...room.members, member] };
+        });
+        break;
+      }
+      case "MEMBER_LEFT": {
+        const { memberId, reason } = env.payload as MemberLeftPayload;
+        this.mutateRoom((room) => ({
+          ...room,
+          members: room.members.filter((m) => m.memberId !== memberId),
+        }));
+        if (reason === "room_closed") {
+          this.update({ fatalMessage: "房主已关闭房间。" });
+        }
+        break;
+      }
+      case "PLAY":
+      case "PAUSE":
+      case "SEEK": {
+        const { positionMs } = env.payload as PositionPayload;
+        this.playing = env.type === "PLAY" || (env.type === "SEEK" && this.playing);
+        this.anchorPosMs = positionMs;
+        this.anchorAtServerMs = this.serverNow();
+        this.mutateRoom((room) => ({
+          ...room,
+          playing: this.playing,
+          positionMs,
+        }));
+        break;
+      }
+      case "NEXT_TRACK_PREPARE": {
+        const payload = env.payload as NextTrackPreparePayload;
+        const barrier: BarrierState = {
+          transitionId: payload.transitionId,
+          track: payload.track,
+          startPositionMs: payload.startPositionMs,
+          prepareDeadlineMs: payload.prepareDeadlineMs,
+          startAtMs: payload.startAtMs,
+        };
+        this.mutateRoom((room) => ({
+          ...room,
+          members: room.members.map((m) => (m.status === "online" ? { ...m, ready: false } : m)),
+        }));
+        this.update({ pendingPrepare: barrier });
+        // Phase 1 无真实媒体准备，收到 PREPARE 即上报就绪（每次转换只发一次）
+        if (!this.readyTransitionIds.has(payload.transitionId)) {
+          this.readyTransitionIds.add(payload.transitionId);
+          this.send("READY", { transitionId: payload.transitionId });
+        }
+        break;
+      }
+      case "NEXT_TRACK_START": {
+        const payload = env.payload as { transitionId: string; startAtMs: number };
+        const prepare = this.matchingPending(payload.transitionId);
+        this.playing = true;
+        this.anchorPosMs = prepare ? prepare.startPositionMs : 0;
+        this.anchorAtServerMs = payload.startAtMs;
+        this.mutateRoom((room) => ({
+          ...room,
+          playing: true,
+          positionMs: this.anchorPosMs,
+          currentTrack: prepare ? prepare.track : room.currentTrack,
+          transitionId: payload.transitionId,
+          startAtMs: payload.startAtMs,
+        }));
+        this.update({ pendingPrepare: null });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private matchingPending(transitionId: string | null): BarrierState | null {
+    if (!transitionId) return null;
+    const pending = this.state.pendingPrepare;
+    return pending && pending.transitionId === transitionId ? pending : null;
+  }
+
+  private mutateRoom(fn: (room: RoomSnapshot) => RoomSnapshot): void {
+    const room = this.state.room;
+    if (!room) return;
+    this.update({ room: fn(room) });
+  }
+
+  // ---- 对外查询与动作 ----
+
+  /** 服务器时钟估计值；与 startAtMs/prepareDeadlineMs 比较必须用它。 */
+  serverNow(): number {
+    return this.opts.serverTimeMs + (Date.now() - this.opts.localTimeMs);
+  }
+
+  /** 当前显示进度：按服务器时钟从锚点外推；屏障未开始时为 0。 */
+  livePositionMs(): number {
+    if (this.state.pendingPrepare) {
+      const delta = this.serverNow() - this.state.pendingPrepare.startAtMs;
+      return delta > 0 ? this.state.pendingPrepare.startPositionMs + delta : 0;
+    }
+    if (!this.playing) return this.anchorPosMs;
+    return this.anchorPosMs + Math.max(0, this.serverNow() - this.anchorAtServerMs);
+  }
+
+  send(type: EnvelopeType, payload: Record<string, unknown>): boolean {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    const env: Envelope = {
+      v: 1,
+      type,
+      eventId: newEventId(),
+      roomRevision: this.revision,
+      senderId: this.opts.memberId,
+      sentAtMs: Date.now(),
+      payload,
+    };
+    ws.send(JSON.stringify(env));
+    return true;
+  }
+
+  play(): void {
+    this.send("PLAY", { positionMs: Math.round(this.livePositionMs()) });
+  }
+
+  pause(): void {
+    this.send("PAUSE", { positionMs: Math.round(this.livePositionMs()) });
+  }
+
+  seek(positionMs: number): void {
+    this.send("SEEK", { positionMs: Math.max(0, Math.round(positionMs)) });
+  }
+
+  /** 发起下一首屏障；时间均按服务器时钟计算。 */
+  prepareNext(track: { trackId: string; title: string; durationMs: number }): void {
+    const now = this.serverNow();
+    this.send("NEXT_TRACK_PREPARE", {
+      transitionId: newEventId(),
+      track,
+      startPositionMs: 0,
+      prepareDeadlineMs: now + 5_000,
+      startAtMs: now + 8_000,
+    });
+  }
+
+  resync(): void {
+    this.send("RESYNC_REQUEST", { reason: "manual" });
+  }
+}
+
+/** 事件 ID：128 位 CSPRNG 十六进制；仅用于关联/去重，非凭证。 */
+export function newEventId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}

@@ -1,0 +1,74 @@
+{
+  "capturedAt": "2026-09-11T17:38:10.547Z",
+  "note": "三标签页 E2E 终态：曲库/队列/投票/历史/聊天均为协议快照内容；无凭证、无本地路径。音频为脚本生成的合成测试音。",
+  "scenario": [
+    "房主创建房间并导入两首本地音频（拖放/文件选择同路径的 DEV 钩子注入），LIBRARY_ADD 广播后成员端点歌区可见 2 条",
+    "房主对 e2e-song-b（200s 合成音）发起下一首屏障：3 端 READY 后统一开始，音频服务 2/2 连接建立",
+    "小明（听众）从曲库点歌 e2e-song-a → 待审批区 → 房主批准入队；小红点歌 e2e-song-b → 批准",
+    "房主用上移/下移按钮重排队列（QUEUE_REORDER 全量顺序下发）",
+    "小明+小红投票跳过（3 人在线 2 票过半）→ 快照 skipVotes.passed=true → 房主端自动 TRACK_FINISHED(skipped) 并衔接队首",
+    "房主手动跳过 → 消费队首 e2e-song-a（6s 短曲）→ 屏障统一开始",
+    "a 自然播完（onended）→ TRACK_FINISHED(played) → 队列已空 → 自动 PAUSE 并显示『队列已播完』提示",
+    "聊天：小明发送文本、小红发送表情反应，三端聊天列表一致"
+  ],
+  "finalState": {
+    "host": {
+      "role": "host",
+      "revision": 44,
+      "playing": false,
+      "currentTrack": { "title": "e2e-song-a", "durationMs": 6000 },
+      "positionMs": 6000,
+      "queue": [],
+      "pendingRequests": 0,
+      "roomLibrary": 2,
+      "localLibrary": { "count": 2, "loaded": 2 },
+      "playMode": "order",
+      "chatCount": 2,
+      "skipVotes": null,
+      "hostMedia": {
+        "ctxState": "running",
+        "loadedCurrent": true,
+        "peers": [
+          { "state": "connected", "ice": "connected", "serving": true },
+          { "state": "connected", "ice": "connected", "serving": true }
+        ]
+      },
+      "queueNotice": "队列已播完。从曲库点歌或加入曲目后继续。"
+    },
+    "m1": {
+      "role": "listener",
+      "revision": 44,
+      "playing": false,
+      "currentTrack": { "title": "e2e-song-a", "durationMs": 6000 },
+      "positionMs": 6000,
+      "queue": [],
+      "roomLibrary": 2,
+      "chatCount": 2,
+      "memberMedia": { "pcState": "connected", "hasTrack": true, "firstAudioLagMs": 125, "level": 0 },
+      "uiPermissions": { "manageButtons": 0, "requestItems": 2, "skipVoteButton": true }
+    },
+    "m2": {
+      "role": "listener",
+      "revision": 44,
+      "playing": false,
+      "currentTrack": { "title": "e2e-song-a", "durationMs": 6000 },
+      "positionMs": 6000,
+      "queue": [],
+      "roomLibrary": 2,
+      "chatCount": 2,
+      "memberMedia": { "pcState": "connected", "hasTrack": true, "firstAudioLagMs": 126, "level": 0 }
+    }
+  },
+  "screenshots": [
+    "e2e-host-playing-b.png（房主端：e2e-song-b 播放中、音频服务 2/2 连接、成员/队列/曲库/聊天面板）",
+    "e2e-host-natural-end-paused.png（房主端：短曲播完自动暂停 0:06/0:06 + 『队列已播完』提示）",
+    "e2e-member-history-chat.png（成员端：最近记录含点歌人标记与 played/skipped 结果、点歌区、投票跳过按钮、聊天消息与反应）"
+  ],
+  "environment": {
+    "relay": "go run ./cmd/relay（本机 :8080，HTTP）",
+    "web": "vite dev server（本机 :5173）",
+    "audio": "scripts/gen-test-audio.mjs 生成的合成测试音（e2e-song-a.wav 6s / e2e-song-b.wav 200s，已入 .gitignore 不入库）",
+    "browser": "ZCode 内置浏览器（IAB），三个标签页 = 三个独立会话成员"
+  },
+  "knownEnvironmentIssue": "IAB 环境会周期性回收标签页（两次在音频播放约 20 余秒后全部转为 about:blank，控制面日志无异常）。通过把场景压缩在单次自动化调用内完成；崩溃与恢复（offline 宽限期重连）本身符合 D-009 设计。"
+}

@@ -1,0 +1,283 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260905T095038347Z-23924-b1fbf9610f9c",
+  "runId": "20260905T095038347Z-23924-b1fbf9610f9c",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "apps/relay/internal/protocol/protocol.go",
+        "detail": "19 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "apps/relay/internal/protocol/protocol.go",
+        "detail": "candidate_limit_exceeded: 19 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "3b0c2969b4f7ab98d3e995eeecb7045df1209cc541573f4ea48ae1fa8190b73f",
+  "rulesVersion": "unavailable",
+  "sessionHash": "0acb6c03da7fe8d7ff7e50efeec8a19b774cbfa717d043993d5a0b187e9e1b9f",
+  "reportRef": ".mimosa/reports/task-review-sess_c1ca962e-a91e-406e-a6c7-6384a705303d-20260905T095038347Z-23924-b1fbf9610f9c.json",
+  "events": [
+    {
+      "eventId": "hook-83aed766ee0021992522f5a0b85f081d",
+      "findingId": "mimosa-547e42dc8c2e37ecb5c9c2ae",
+      "type": "finding_observed",
+      "at": "2026-09-05T09:50:38.347Z",
+      "identity": {
+        "projectRelativeFile": "packages/protocol/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "0edfa47fcb4d6c5aeb472d7816f98df3e3e78affd8d28bf97047eed50bc9469c",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 19,
+      "endLine": 19,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "0edfa47fcb4d6c5aeb472d7816f98df3e3e78affd8d28bf97047eed50bc9469c"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-ed2ce152dc8ececc52fb3d25e231ac15",
+      "findingId": "mimosa-4c5d90249bb558f257cee045",
+      "type": "finding_observed",
+      "at": "2026-09-05T09:50:38.347Z",
+      "identity": {
+        "projectRelativeFile": "packages/protocol/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "f996771ac45d4d1c8ce90e51879d58465d8868029f557a1b05851271f2bb0d22",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 22,
+      "endLine": 22,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "f996771ac45d4d1c8ce90e51879d58465d8868029f557a1b05851271f2bb0d22"
+      },
+      "sequence": 1
+    },
+    {
+      "eventId": "hook-cd073a20bdb9667414169a74edafeba0",
+      "findingId": "mimosa-a6d5eed32ac70d6bd1da9227",
+      "type": "finding_observed",
+      "at": "2026-09-05T09:50:38.347Z",
+      "identity": {
+        "projectRelativeFile": "packages/protocol/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "c7f0feb0b3a6e39f66c67a8d8e163afc8c367249e36399d0db7f4115bbfbb2df",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 23,
+      "endLine": 23,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "c7f0feb0b3a6e39f66c67a8d8e163afc8c367249e36399d0db7f4115bbfbb2df"
+      },
+      "sequence": 2
+    },
+    {
+      "eventId": "hook-dde4575fbf1ef9f193a66ee870c4766d",
+      "findingId": "mimosa-6ee111788da3fc05d1177a91",
+      "type": "finding_observed",
+      "at": "2026-09-05T09:50:38.347Z",
+      "identity": {
+        "projectRelativeFile": "packages/shared/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "f996771ac45d4d1c8ce90e51879d58465d8868029f557a1b05851271f2bb0d22",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 19,
+      "endLine": 19,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "f996771ac45d4d1c8ce90e51879d58465d8868029f557a1b05851271f2bb0d22"
+      },
+      "sequence": 3
+    },
+    {
+      "eventId": "hook-0ea65cf92d03227b3e1d74567e333d3e",
+      "findingId": "mimosa-e99e00f40e86fa69a446d6d9",
+      "type": "finding_observed",
+      "at": "2026-09-05T09:50:38.347Z",
+      "identity": {
+        "projectRelativeFile": "packages/shared/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "c7f0feb0b3a6e39f66c67a8d8e163afc8c367249e36399d0db7f4115bbfbb2df",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 20,
+      "endLine": 20,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "c7f0feb0b3a6e39f66c67a8d8e163afc8c367249e36399d0db7f4115bbfbb2df"
+      },
+      "sequence": 4
+    },
+    {
+      "eventId": "hook-a20f0a8f144a27651cb8fdb06c06cd73",
+      "findingId": "mimosa-459141b4cbdd59ac3fa77cc8",
+      "type": "finding_observed",
+      "at": "2026-09-05T09:50:38.347Z",
+      "identity": {
+        "projectRelativeFile": "packages/media/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "f996771ac45d4d1c8ce90e51879d58465d8868029f557a1b05851271f2bb0d22",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 19,
+      "endLine": 19,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "f996771ac45d4d1c8ce90e51879d58465d8868029f557a1b05851271f2bb0d22"
+      },
+      "sequence": 5
+    },
+    {
+      "eventId": "hook-ffa97d875312746b2080d95c1e09cb23",
+      "findingId": "mimosa-bf539fec8e70a3c125c8d6b5",
+      "type": "finding_observed",
+      "at": "2026-09-05T09:50:38.347Z",
+      "identity": {
+        "projectRelativeFile": "packages/media/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "c7f0feb0b3a6e39f66c67a8d8e163afc8c367249e36399d0db7f4115bbfbb2df",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 20,
+      "endLine": 20,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "c7f0feb0b3a6e39f66c67a8d8e163afc8c367249e36399d0db7f4115bbfbb2df"
+      },
+      "sequence": 6
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "packages/protocol/src/schema-source.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/protocol/src/types.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/protocol/src/error-codes.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/protocol/src/validate.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/protocol/src/index.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/protocol/test/envelope.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/shared/src/redact.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/shared/src/index.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/shared/test/redact.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/media/src/index.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/media/test/index.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/config/config.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/config/config_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/logging/logging.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/logging/logging_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-05T09:50:38.737Z"
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-05T09:43:30.305Z",
+  "sessionId": "sess_c1ca962e-a91e-406e-a6c7-6384a705303d",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "D:\\Resume_project\\Listogether\\scripts\\smoke.mjs",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 10,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

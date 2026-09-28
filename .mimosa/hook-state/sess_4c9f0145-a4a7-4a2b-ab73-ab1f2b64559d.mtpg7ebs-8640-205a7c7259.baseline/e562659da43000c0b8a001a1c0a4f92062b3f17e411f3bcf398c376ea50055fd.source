@@ -1,0 +1,129 @@
+/**
+ * 媒体接线层：把 RoomStore 的房间事件流接到房主/成员音频控制器。
+ * 组件不直接操作 WebAudio/WebRTC；角色变化时由 UI 挂载/卸载对应的 handle。
+ */
+import type { Envelope } from "@listogether/protocol";
+import type { RoomStore } from "../transport/ws/room-store";
+import { HostAudioController } from "./host-audio";
+import { MemberAudioController } from "./member-audio";
+
+function selfId(store: RoomStore): string {
+  return store.memberId;
+}
+
+/** 在线成员（排除自己）——房主 reconcile 的目标集合。 */
+function otherOnlineMemberIds(store: RoomStore): string[] {
+  const room = store.getState().room;
+  if (!room) return [];
+  return room.members.filter((m) => m.status === "online" && m.memberId !== selfId(store)).map((m) => m.memberId);
+}
+
+export interface HostMediaHandle {
+  controller: HostAudioController;
+  dispose(): void;
+}
+
+export function wireHostMedia(store: RoomStore): HostMediaHandle {
+  const controller = new HostAudioController(
+    (type, payload) => store.send(type, payload as Record<string, unknown>),
+    {
+      onOffer: (memberId, sdp) => store.send("WEBRTC_OFFER", { toMemberId: memberId, sdp }),
+      onCandidate: (memberId, candidate) => store.send("ICE_CANDIDATE", { toMemberId: memberId, candidate }),
+    },
+  );
+
+  const unsubscribe = store.subscribeEnvelopes((env: Envelope) => {
+    switch (env.type) {
+      case "ROOM_SNAPSHOT":
+      case "MEMBER_JOINED":
+      case "MEMBER_LEFT":
+        controller.syncMembers(otherOnlineMemberIds(store));
+        break;
+      case "WEBRTC_ANSWER": {
+        // 成员的应答（senderId 为该成员）
+        const { sdp } = env.payload as { sdp: string };
+        controller.handleAnswer(env.senderId, sdp);
+        break;
+      }
+      case "ICE_CANDIDATE": {
+        const { candidate } = env.payload as { candidate: string };
+        if (env.senderId === selfId(store)) break; // 自己的候选回显
+        controller.handleCandidate(env.senderId, candidate);
+        break;
+      }
+      case "NEXT_TRACK_PREPARE":
+        // 自己发起的屏障：本地已解码文件即视为房主就绪
+        if (controller.hasPendingTrack()) store.notifyBarrierMediaReady();
+        break;
+      case "NEXT_TRACK_START": {
+        const { startAtMs } = env.payload as { startAtMs: number };
+        const prepared = store.getState().lastCompletedPrepare;
+        controller.startBarrierSegment(startAtMs, prepared?.startPositionMs ?? 0, store.serverNow());
+        break;
+      }
+      case "RESYNC_REQUEST": {
+        // Relay 转发来的成员重新同步：只为该成员重建音频段（只影响请求者）
+        if (env.senderId === selfId(store) || env.senderId === "relay") break;
+        controller.resyncMember(env.senderId, Math.round(store.livePositionMs()), store.serverNow());
+        break;
+      }
+      default:
+        break;
+    }
+  });
+
+  return {
+    controller,
+    dispose: () => {
+      unsubscribe();
+      controller.release();
+    },
+  };
+}
+
+export interface MemberMediaHandle {
+  controller: MemberAudioController;
+  dispose(): void;
+}
+
+export function wireMemberMedia(store: RoomStore): MemberMediaHandle {
+  const controller = new MemberAudioController({
+    serverNowMs: () => store.serverNow(),
+    currentSongStartAtMs: () => store.getState().room?.startAtMs ?? null,
+    sendResync: (reason) => store.resync(reason),
+    notifyBarrierMediaReady: () => store.notifyBarrierMediaReady(),
+    sendSignaling: (type, toMemberId, value) => {
+      const payload = type === "WEBRTC_ANSWER" ? { toMemberId, sdp: value } : { toMemberId, candidate: value };
+      store.send(type, payload);
+    },
+  });
+
+  const unsubscribe = store.subscribeEnvelopes((env: Envelope) => {
+    switch (env.type) {
+      case "WEBRTC_OFFER": {
+        const { sdp } = env.payload as { sdp: string };
+        controller.handleOffer(env.senderId, sdp);
+        break;
+      }
+      case "ICE_CANDIDATE": {
+        const { candidate } = env.payload as { candidate: string };
+        controller.handleCandidate(candidate);
+        break;
+      }
+      case "NEXT_TRACK_PREPARE":
+      case "ROOM_SNAPSHOT":
+        controller.evaluateReady();
+        break;
+      default:
+        break;
+    }
+  });
+
+  return {
+    controller,
+    dispose: () => {
+      unsubscribe();
+      controller.release();
+    },
+  };
+}

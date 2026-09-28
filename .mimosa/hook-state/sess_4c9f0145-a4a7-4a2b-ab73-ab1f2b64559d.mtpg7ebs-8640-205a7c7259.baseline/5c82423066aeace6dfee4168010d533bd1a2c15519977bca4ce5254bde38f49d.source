@@ -1,0 +1,17 @@
+import { useRoute } from "./router";
+import HomePage from "./HomePage";
+import JoinPage from "../features/room/JoinPage";
+import RoomPage from "../features/room/RoomPage";
+
+export default function App() {
+  const route = useRoute();
+
+  if (route.path === "/join") {
+    return <JoinPage />;
+  }
+  const roomMatch = route.path.match(/^\/room\/([^/]+)$/);
+  if (roomMatch?.[1]) {
+    return <RoomPage roomId={decodeURIComponent(roomMatch[1])} />;
+  }
+  return <HomePage />;
+}

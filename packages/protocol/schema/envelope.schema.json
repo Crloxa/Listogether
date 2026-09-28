@@ -1,0 +1,501 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://listogether.dev/schemas/envelope.schema.json",
+  "title": "Listogether 房间消息信封（canonical schema）",
+  "description": "控制面消息统一信封。v=1；type 枚举与 docs/03-technical-design.md 的 MVP 事件一致。Go 侧 apps/relay/internal/protocol 的已知事件集合由 parity 测试与本文件保持同步。",
+  "type": "object",
+  "required": ["v", "type", "eventId", "roomRevision", "senderId", "sentAtMs", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "协议版本；当前只接受 1，其他版本拒绝（UNSUPPORTED_VERSION）。"
+    },
+    "type": {
+      "enum": [
+        "ROOM_SNAPSHOT",
+        "MEMBER_JOINED",
+        "MEMBER_LEFT",
+        "PLAY",
+        "PAUSE",
+        "SEEK",
+        "NEXT_TRACK_PREPARE",
+        "READY",
+        "NEXT_TRACK_START",
+        "RESYNC_REQUEST",
+        "WEBRTC_OFFER",
+        "WEBRTC_ANSWER",
+        "ICE_CANDIDATE",
+        "HEARTBEAT",
+        "ERROR",
+        "LIBRARY_ADD",
+        "LIBRARY_REMOVE",
+        "QUEUE_REQUEST",
+        "QUEUE_APPROVE",
+        "QUEUE_REJECT",
+        "QUEUE_REMOVE",
+        "QUEUE_REORDER",
+        "QUEUE_CLEAR",
+        "SKIP_VOTE",
+        "TRACK_FINISHED",
+        "PLAY_MODE",
+        "CHAT_MESSAGE",
+        "CHAT_HISTORY",
+        "TRACK_LYRICS"
+      ]
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "事件唯一 ID，由发送方生成。"
+    },
+    "roomRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "发送方所见的房间状态版本；低于当前版本的写操作被拒绝（STALE_REVISION）。"
+    },
+    "senderId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "发送成员 ID；服务端转发时使用会话绑定的成员 ID，不信任客户端自报。"
+    },
+    "sentAtMs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "发送方 Unix 毫秒时间戳。"
+    },
+    "payload": {
+      "description": "payload 形状由 type 决定，见 allOf/if-then 映射。",
+      "if": { "type": "object" },
+      "then": { "type": "object" }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "ROOM_SNAPSHOT" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/roomSnapshot" } } } },
+    { "if": { "properties": { "type": { "const": "MEMBER_JOINED" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/memberJoinedPayload" } } } },
+    { "if": { "properties": { "type": { "const": "MEMBER_LEFT" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/memberLeftPayload" } } } },
+    { "if": { "properties": { "type": { "const": "PLAY" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/positionPayload" } } } },
+    { "if": { "properties": { "type": { "const": "PAUSE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/positionPayload" } } } },
+    { "if": { "properties": { "type": { "const": "SEEK" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/positionPayload" } } } },
+    { "if": { "properties": { "type": { "const": "NEXT_TRACK_PREPARE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/nextTrackPreparePayload" } } } },
+    { "if": { "properties": { "type": { "const": "READY" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/readyPayload" } } } },
+    { "if": { "properties": { "type": { "const": "NEXT_TRACK_START" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/nextTrackStartPayload" } } } },
+    { "if": { "properties": { "type": { "const": "RESYNC_REQUEST" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/resyncRequestPayload" } } } },
+    { "if": { "properties": { "type": { "const": "WEBRTC_OFFER" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/webrtcSdpPayload" } } } },
+    { "if": { "properties": { "type": { "const": "WEBRTC_ANSWER" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/webrtcSdpPayload" } } } },
+    { "if": { "properties": { "type": { "const": "ICE_CANDIDATE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/iceCandidatePayload" } } } },
+    { "if": { "properties": { "type": { "const": "HEARTBEAT" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/heartbeatPayload" } } } },
+    { "if": { "properties": { "type": { "const": "ERROR" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/errorPayload" } } } },
+    { "if": { "properties": { "type": { "const": "LIBRARY_ADD" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/libraryAddPayload" } } } },
+    { "if": { "properties": { "type": { "const": "LIBRARY_REMOVE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/libraryRemovePayload" } } } },
+    { "if": { "properties": { "type": { "const": "QUEUE_REQUEST" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/queueRequestPayload" } } } },
+    { "if": { "properties": { "type": { "const": "QUEUE_APPROVE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/queueEntryIdPayload" } } } },
+    { "if": { "properties": { "type": { "const": "QUEUE_REJECT" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/queueEntryIdPayload" } } } },
+    { "if": { "properties": { "type": { "const": "QUEUE_REMOVE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/queueEntryIdPayload" } } } },
+    { "if": { "properties": { "type": { "const": "QUEUE_REORDER" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/queueReorderPayload" } } } },
+    { "if": { "properties": { "type": { "const": "QUEUE_CLEAR" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/queueClearPayload" } } } },
+    { "if": { "properties": { "type": { "const": "SKIP_VOTE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/skipVotePayload" } } } },
+    { "if": { "properties": { "type": { "const": "TRACK_FINISHED" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/trackFinishedPayload" } } } },
+    { "if": { "properties": { "type": { "const": "PLAY_MODE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/playModePayload" } } } },
+    { "if": { "properties": { "type": { "const": "CHAT_MESSAGE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/chatMessagePayload" } } } },
+    { "if": { "properties": { "type": { "const": "CHAT_HISTORY" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/chatHistoryPayload" } } } },
+    { "if": { "properties": { "type": { "const": "TRACK_LYRICS" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/trackLyricsPayload" } } } }
+  ],
+  "$defs": {
+    "role": {
+      "description": "成员角色；取值与产品概览的角色表一致。",
+      "enum": ["host", "co_dj", "listener"]
+    },
+    "pendingPrepareInfo": {
+      "type": "object",
+      "required": ["transitionId", "track", "startPositionMs", "prepareDeadlineMs", "startAtMs"],
+      "additionalProperties": false,
+      "properties": {
+        "transitionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "track": { "$ref": "#/$defs/track" },
+        "startPositionMs": { "type": "integer", "minimum": 0 },
+        "prepareDeadlineMs": { "type": "integer", "minimum": 0 },
+        "startAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "memberStatus": {
+      "description": "成员连接状态；offline 表示心跳超时或断开。",
+      "enum": ["online", "offline"]
+    },
+    "member": {
+      "type": "object",
+      "required": ["memberId", "name", "role", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "memberId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "role": { "$ref": "#/$defs/role" },
+        "status": { "$ref": "#/$defs/memberStatus" },
+        "ready": {
+          "type": "boolean",
+          "description": "仅在同一首下一首的准备屏障期间有意义。"
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "required": ["trackId", "title", "durationMs"],
+      "additionalProperties": false,
+      "properties": {
+        "trackId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "artist": { "type": "string", "maxLength": 512 },
+        "durationMs": { "type": "integer", "minimum": 0, "description": "未知时长用 0 表示。" },
+        "source": {
+          "oneOf": [{ "$ref": "#/$defs/trackSource" }, { "type": "null" }],
+          "description": "平台链接来源信息（Phase 4，D-014）；本地文件曲目缺省。"
+        }
+      }
+    },
+    "trackSource": {
+      "type": "object",
+      "required": ["platform", "url"],
+      "additionalProperties": false,
+      "description": "平台链接识别结果（D-014）。playability 是平台侧可用性判断，不代表房间内可播（永远取决于房主本机文件）。",
+      "properties": {
+        "platform": { "enum": ["netease", "qqmusic", "spotify", "ytmusic", "other"] },
+        "url": { "type": "string", "minLength": 1, "maxLength": 512, "description": "规范化后的平台链接。" },
+        "externalId": { "type": "string", "maxLength": 128 },
+        "playability": {
+          "enum": ["playable", "needs_login", "preview_only", "region_locked", "unavailable", "unknown"],
+          "description": "playable 平台确认可用；needs_login 需登录/会员确认；preview_only 仅预览；region_locked 地区限制；unavailable 失效或不存在；unknown 无法确认。"
+        },
+        "coverUrl": { "type": "string", "maxLength": 512, "description": "平台封面图 URL（各客户端直连加载显示；不经 DataChannel 转发，P-005）。" },
+        "resolvedAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "playMode": {
+      "description": "播放模式：order 顺序、repeat_one 单曲循环、shuffle 随机（D-012）。",
+      "enum": ["order", "repeat_one", "shuffle"]
+    },
+    "queueEntry": {
+      "type": "object",
+      "required": ["entryId", "track", "requestedBy", "requestedByName", "addedAtMs"],
+      "additionalProperties": false,
+      "properties": {
+        "entryId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "track": { "$ref": "#/$defs/track" },
+        "requestedBy": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "requestedByName": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "addedAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "libraryEntry": {
+      "type": "object",
+      "required": ["trackId", "title", "durationMs", "addedBy", "addedAtMs"],
+      "additionalProperties": false,
+      "description": "房间曲库条目；只有元数据，音频文件只存在于房主本机（D-012）。",
+      "properties": {
+        "trackId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "artist": { "type": "string", "maxLength": 512 },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "source": { "oneOf": [{ "$ref": "#/$defs/trackSource" }, { "type": "null" }], "description": "平台链接来源（D-014）；缺省为本地曲目。" },
+        "addedBy": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "addedAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "trackOutcome": {
+      "description": "曲目结束方式：played 自然播完、skipped 被跳过、failed 播放失败、rejected 点歌被拒绝。",
+      "enum": ["played", "skipped", "failed", "rejected"]
+    },
+    "historyEntry": {
+      "type": "object",
+      "required": ["track", "outcome", "atMs"],
+      "additionalProperties": false,
+      "properties": {
+        "track": { "$ref": "#/$defs/track" },
+        "outcome": { "$ref": "#/$defs/trackOutcome" },
+        "atMs": { "type": "integer", "minimum": 0 },
+        "requestedByName": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "skipVoteState": {
+      "type": "object",
+      "required": ["transitionId", "memberIds", "passed"],
+      "additionalProperties": false,
+      "description": "当前曲目的投票跳过状态；passed=票数超过在线成员半数且至少 2 票（D-013）。",
+      "properties": {
+        "transitionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "memberIds": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 }, "maxItems": 256 },
+        "passed": { "type": "boolean" }
+      }
+    },
+    "chatEntry": {
+      "type": "object",
+      "required": ["messageId", "memberId", "name", "kind", "text", "sentAtMs"],
+      "additionalProperties": false,
+      "properties": {
+        "messageId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "memberId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "kind": { "enum": ["text", "reaction"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "sentAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "roomSnapshot": {
+      "type": "object",
+      "required": ["roomId", "revision", "playing", "positionMs", "currentTrack", "transitionId", "startAtMs", "queue", "members"],
+      "additionalProperties": false,
+      "properties": {
+        "roomId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "revision": { "type": "integer", "minimum": 0, "description": "房间状态版本，服务端单调递增。" },
+        "playing": { "type": "boolean" },
+        "positionMs": { "type": "integer", "minimum": 0 },
+        "currentTrack": { "oneOf": [{ "$ref": "#/$defs/track" }, { "type": "null" }] },
+        "transitionId": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }] },
+        "startAtMs": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }], "description": "统一开始时间的 Unix 毫秒时间戳；非屏障播放为 null。" },
+        "pendingPrepare": {
+          "oneOf": [{ "$ref": "#/$defs/pendingPrepareInfo" }, { "type": "null" }],
+          "description": "进行中的下一首准备屏障元数据；无屏障时缺省或为 null。重连成员据此恢复屏障信息并上报 READY。"
+        },
+        "playMode": { "$ref": "#/$defs/playMode", "description": "播放模式；缺省为 order。" },
+        "library": { "type": "array", "items": { "$ref": "#/$defs/libraryEntry" }, "maxItems": 500, "description": "房间曲库（仅元数据）；缺省为空。" },
+        "queue": { "type": "array", "items": { "$ref": "#/$defs/queueEntry" }, "maxItems": 1000 },
+        "pendingRequests": { "type": "array", "items": { "$ref": "#/$defs/queueEntry" }, "maxItems": 200, "description": "待审批的点歌请求；缺省为空。" },
+        "history": { "type": "array", "items": { "$ref": "#/$defs/historyEntry" }, "maxItems": 20, "description": "最近播放/跳过/失败/拒绝历史；缺省为空。" },
+        "skipVotes": {
+          "oneOf": [{ "$ref": "#/$defs/skipVoteState" }, { "type": "null" }],
+          "description": "当前曲目的投票跳过状态；无投票时缺省或为 null。"
+        },
+        "members": { "type": "array", "items": { "$ref": "#/$defs/member" }, "maxItems": 256 }
+      }
+    },
+    "memberJoinedPayload": {
+      "type": "object",
+      "required": ["member"],
+      "additionalProperties": false,
+      "properties": {
+        "member": { "$ref": "#/$defs/member" }
+      }
+    },
+    "memberLeftPayload": {
+      "type": "object",
+      "required": ["memberId", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "memberId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "reason": { "enum": ["left", "kicked", "timeout", "room_closed"] }
+      }
+    },
+    "positionPayload": {
+      "type": "object",
+      "required": ["positionMs"],
+      "additionalProperties": false,
+      "properties": {
+        "positionMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "nextTrackPreparePayload": {
+      "type": "object",
+      "required": ["transitionId", "track", "startPositionMs", "prepareDeadlineMs", "startAtMs"],
+      "additionalProperties": false,
+      "properties": {
+        "transitionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "track": { "$ref": "#/$defs/track" },
+        "startPositionMs": { "type": "integer", "minimum": 0 },
+        "prepareDeadlineMs": { "type": "integer", "minimum": 0, "description": "成员上报 READY 的截止 Unix 毫秒时间戳；超时成员移出屏障，不永久阻塞。" },
+        "startAtMs": { "type": "integer", "minimum": 0, "description": "统一开始播放的 Unix 毫秒时间戳，必须晚于 prepareDeadlineMs。" }
+      }
+    },
+    "readyPayload": {
+      "type": "object",
+      "required": ["transitionId"],
+      "additionalProperties": false,
+      "properties": {
+        "transitionId": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "nextTrackStartPayload": {
+      "type": "object",
+      "required": ["transitionId", "startAtMs"],
+      "additionalProperties": false,
+      "properties": {
+        "transitionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "startAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "resyncRequestPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "成员请求只影响自己的重新同步；空对象表示无附加信息。",
+      "properties": {
+        "reason": { "enum": ["late_join", "drift", "stalled", "manual"] }
+      }
+    },
+    "webrtcSdpPayload": {
+      "type": "object",
+      "required": ["toMemberId", "sdp"],
+      "additionalProperties": false,
+      "properties": {
+        "toMemberId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "sdp": { "type": "string", "minLength": 1, "maxLength": 65536 }
+      }
+    },
+    "iceCandidatePayload": {
+      "type": "object",
+      "required": ["toMemberId", "candidate"],
+      "additionalProperties": false,
+      "properties": {
+        "toMemberId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "candidate": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "heartbeatPayload": {
+      "type": "object",
+      "required": ["clientTimeMs"],
+      "additionalProperties": false,
+      "properties": {
+        "clientTimeMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "libraryAddPayload": {
+      "type": "object",
+      "required": ["tracks"],
+      "additionalProperties": false,
+      "properties": {
+        "tracks": { "type": "array", "items": { "$ref": "#/$defs/track" }, "minItems": 1, "maxItems": 200 }
+      }
+    },
+    "libraryRemovePayload": {
+      "type": "object",
+      "required": ["trackId"],
+      "additionalProperties": false,
+      "properties": {
+        "trackId": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "queueRequestPayload": {
+      "type": "object",
+      "required": ["trackId"],
+      "additionalProperties": false,
+      "properties": {
+        "trackId": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "queueEntryIdPayload": {
+      "type": "object",
+      "required": ["entryId"],
+      "additionalProperties": false,
+      "description": "QUEUE_APPROVE/QUEUE_REJECT/QUEUE_REMOVE 共用：目标条目 ID。",
+      "properties": {
+        "entryId": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "queueReorderPayload": {
+      "type": "object",
+      "required": ["entryIds"],
+      "additionalProperties": false,
+      "properties": {
+        "entryIds": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 }, "maxItems": 1000 }
+      }
+    },
+    "queueClearPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "清空队列与待审批；空对象。",
+      "properties": {}
+    },
+    "skipVotePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "对当前曲目投一票；空对象。",
+      "properties": {}
+    },
+    "trackFinishedPayload": {
+      "type": "object",
+      "required": ["outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "outcome": { "$ref": "#/$defs/trackOutcome" },
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "failed 时指向队列中失败条目：服务端将其移除（失败自动跳过）。省略时指当前播放曲目。"
+        }
+      }
+    },
+    "playModePayload": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "$ref": "#/$defs/playMode" }
+      }
+    },
+    "chatMessagePayload": {
+      "type": "object",
+      "required": ["kind", "text"],
+      "additionalProperties": false,
+      "description": "客户端发送时只带 kind/text；Relay 转发时补齐身份字段（messageId/memberId/name/sentAtMs）。",
+      "properties": {
+        "kind": { "enum": ["text", "reaction"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "messageId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "memberId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "sentAtMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "chatHistoryPayload": {
+      "type": "object",
+      "required": ["messages"],
+      "additionalProperties": false,
+      "description": "连接建立时服务端单发：该房间最近聊天记录。",
+      "properties": {
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/chatEntry" }, "maxItems": 50 }
+      }
+    },
+    "trackLyricsPayload": {
+      "type": "object",
+      "required": ["trackId", "format", "lyrics"],
+      "additionalProperties": false,
+      "description": "歌词（D-017）：host 发布时经 Relay 校验缓存并转发其他成员；连接挂载与切歌时由服务端补发。不进快照、不占 revision。",
+      "properties": {
+        "trackId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "format": { "enum": ["lrc", "plain"] },
+        "lyrics": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 49152,
+          "description": "歌词原文（UTF-8 文本）。≤48KB（48×1024 字节，考虑 JSON 转义后仍低于 64KB WS 帧上限）；≤500 行且单行 ≤512 字符由服务端与客户端共同校验。"
+        }
+      }
+    },
+    "errorPayload": {
+      "type": "object",
+      "required": ["code"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_MESSAGE",
+            "UNSUPPORTED_VERSION",
+            "UNKNOWN_TYPE",
+            "STALE_REVISION",
+            "UNAUTHORIZED",
+            "INVALID_TOKEN",
+            "ROOM_NOT_FOUND",
+            "ROOM_FULL",
+            "ROOM_LOCKED",
+            "RATE_LIMITED",
+            "DUPLICATE_TRACK",
+            "LYRICS_TOO_LARGE",
+            "INTERNAL"
+          ]
+        },
+        "message": { "type": "string", "maxLength": 512 },
+        "refEventId": { "type": "string", "maxLength": 128, "description": "关联的被拒绝事件的 eventId。" }
+      }
+    }
+  }
+}

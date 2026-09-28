@@ -1,0 +1,577 @@
+// Package room 实现房间 actor：每个房间一个串行 command loop，
+// 全部成员、权限、revision、播放与屏障状态只在该 loop 内变更。
+package room
+
+import (
+	"encoding/json"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"listogether/apps/relay/internal/protocol"
+)
+
+// 角色与成员状态取值与 canonical schema 一致。
+const (
+	RoleHost     = "host"
+	RoleCoDJ     = "co_dj"
+	RoleListener = "listener"
+
+	StatusOnline  = "online"
+	StatusOffline = "offline"
+
+	// WS 关闭码：房间 actor 主动断开连接的原因。
+	CloseRoomClosed = 4002
+	CloseReplaced   = 4003
+
+	// DefaultOfflineTTL 是 offline 成员被移除前的宽限期。
+	DefaultOfflineTTL = 45 * time.Second
+)
+
+// Conn 是房间 actor 对连接的视图；由 ws 包实现，必须非阻塞。
+type Conn interface {
+	// Send 投递一条信封；返回 false 表示连接不可用或队列满（慢消费者）。
+	Send(env protocol.Envelope) bool
+	// Close 关闭连接并附带关闭码；可从任意 goroutine 调用且幂等。
+	Close(code int, reason string)
+}
+
+// AccessError 是房间操作的业务失败；Code 与 protocol 错误码一致。
+type AccessError struct {
+	Code    string
+	Message string
+}
+
+func (e *AccessError) Error() string { return e.Code + ": " + e.Message }
+
+// HubHooks 是房间回调 hub 的接口；实现必须短小且不回叫房间。
+type HubHooks interface {
+	// RoomRemoved 房间已关闭或清空，hub 应删除房间与其全部会话。
+	RoomRemoved(roomID string)
+	// SessionInvalidated 单个成员被移除，hub 应失效其会话。
+	SessionInvalidated(roomID, memberID string)
+}
+
+// Config 是房间创建参数；InviteTokenHash/PasswordHash 只保存哈希。
+type Config struct {
+	ID              string
+	InviteTokenHash string
+	PasswordHash    string // 空 = 无密码
+	MaxMembers      int
+	OfflineTTL      time.Duration
+}
+
+// Identity 是会话提供的成员身份；权限不取决于它，只取决于房间成员记录。
+type Identity struct {
+	MemberID string
+	Name     string
+	Role     string
+}
+
+// AttachResult 是连接挂载结果。
+type AttachResult struct {
+	Err *AccessError
+}
+
+// member 是房间成员的 actor 内部记录。
+type member struct {
+	ID             string
+	Name           string
+	Role           string
+	Status         string
+	Ready          *bool
+	conn           Conn
+	lastSeen       time.Time
+	disconnectedAt time.Time
+	joinedAt       time.Time
+}
+
+type barrier struct {
+	transitionID      string
+	track             protocol.Track
+	startPositionMs   int64
+	prepareDeadlineMs int64
+	startAtMs         int64
+	deadlineNotified  bool
+}
+
+// Room 是单个房间的 actor。
+type Room struct {
+	cfg     Config
+	hooks   HubHooks
+	logger  *slog.Logger
+	nowFunc func() time.Time
+
+	createdAt    time.Time
+	attachedEver atomic.Bool
+
+	tasks     chan func()
+	submitMu  sync.Mutex
+	closeFlag atomic.Bool
+
+	// ---- 以下状态仅 actor goroutine 内访问 ----
+	revision    int64
+	locked      bool
+	closed      bool
+	members     map[string]*member
+	order       []string
+	currentTrack *protocol.Track
+	playing      bool
+	positionMs   int64
+	positionAt   time.Time
+	transitionID string
+	startAtMs    int64
+	queue        []protocol.Track
+	barrier      *barrier
+}
+
+// New 创建房间并启动 actor loop。
+func New(cfg Config, hooks HubHooks, logger *slog.Logger) *Room {
+	if cfg.MaxMembers <= 0 {
+		cfg.MaxMembers = 16
+	}
+	if cfg.MaxMembers > protocol.MaxMembersCap {
+		cfg.MaxMembers = protocol.MaxMembersCap
+	}
+	if cfg.OfflineTTL <= 0 {
+		cfg.OfflineTTL = DefaultOfflineTTL
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	r := &Room{
+		cfg:     cfg,
+		hooks:   hooks,
+		logger:  logger,
+		nowFunc: time.Now,
+		createdAt: time.Now(),
+		tasks:   make(chan func(), 256),
+		members: make(map[string]*member),
+		queue:   []protocol.Track{},
+	}
+	go r.loop()
+	return r
+}
+
+// ID 返回房间 ID。
+func (r *Room) ID() string { return r.cfg.ID }
+
+// CreatedAt 返回创建时间（hub 清理用）。
+func (r *Room) CreatedAt() time.Time { return r.createdAt }
+
+// AttachedEver 返回是否曾有连接挂载（hub 清理从未使用的房间）。
+func (r *Room) AttachedEver() bool { return r.attachedEver.Load() }
+
+// OfflineTTL 返回 offline 宽限期。
+func (r *Room) OfflineTTL() time.Duration { return r.cfg.OfflineTTL }
+
+// ---- 不可变配置访问器（无锁安全） ----
+
+// InviteTokenHash 返回邀请 token 的哈希。
+func (r *Room) InviteTokenHash() string { return r.cfg.InviteTokenHash }
+
+// PasswordHash 返回房间密码哈希；空表示无密码。
+func (r *Room) PasswordHash() string { return r.cfg.PasswordHash }
+
+// HasPassword 返回房间是否设置了密码。
+func (r *Room) HasPassword() bool { return r.cfg.PasswordHash != "" }
+
+// MaxMembers 返回人数上限。
+func (r *Room) MaxMembers() int { return r.cfg.MaxMembers }
+
+// ---- 需经 actor 的一致性读取 ----
+
+// IsLocked 返回锁房状态。
+func (r *Room) IsLocked() bool {
+	var locked bool
+	_ = r.Do(func() { locked = r.locked })
+	return locked
+}
+
+// MemberCount 返回当前成员数（含 offline 宽限期成员）。
+func (r *Room) MemberCount() int {
+	var n int
+	_ = r.Do(func() { n = len(r.members) })
+	return n
+}
+
+// Submit 把任务投递到 actor loop；房间已关闭或队列满返回 false。
+func (r *Room) Submit(task func()) bool {
+	r.submitMu.Lock()
+	defer r.submitMu.Unlock()
+	if r.closeFlag.Load() {
+		return false
+	}
+	select {
+	case r.tasks <- task:
+		return true
+	default:
+		r.logger.Error("room task queue full", "roomId", r.cfg.ID)
+		return false
+	}
+}
+
+// Do 同步执行任务（供 HTTP 层等待结果）；超时或房间关闭返回 false。
+func (r *Room) Do(task func()) bool {
+	done := make(chan struct{})
+	if !r.Submit(func() {
+		task()
+		close(done)
+	}) {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	case <-time.After(3 * time.Second):
+		return false
+	}
+}
+
+func (r *Room) loop() {
+	for task := range r.tasks {
+		task()
+	}
+}
+
+func (r *Room) now() time.Time { return r.nowFunc() }
+
+// ---- 身份与权限 ----
+
+func (r *Room) getByConn(c Conn) *member {
+	for _, m := range r.members {
+		if m.conn == c {
+			return m
+		}
+	}
+	return nil
+}
+
+func (r *Room) requireRole(m *member, roles ...string) *AccessError {
+	for _, role := range roles {
+		if m.Role == role {
+			return nil
+		}
+	}
+	return &AccessError{Code: protocol.CodeUnauthorized, Message: "当前角色无权执行该操作"}
+}
+
+// ---- 连接挂载与摘除 ----
+
+// Attach 在 actor 内执行连接挂载：重连恢复身份，新成员加入广播。
+func (r *Room) Attach(c Conn, id Identity) AttachResult {
+	var res AttachResult
+	ok := r.Do(func() { res = r.attach(c, id) })
+	if !ok {
+		return AttachResult{Err: &AccessError{Code: protocol.CodeInternal, Message: "房间不可用"}}
+	}
+	return res
+}
+
+func (r *Room) attach(c Conn, id Identity) AttachResult {
+	if r.closed {
+		return AttachResult{Err: &AccessError{Code: protocol.CodeRoomNotFound, Message: "房间已关闭"}}
+	}
+	r.attachedEver.Store(true)
+	if existing, ok := r.members[id.MemberID]; ok {
+		// 重连：同一会话恢复原成员身份（含屏障 ready 状态）
+		if existing.conn != nil && existing.conn != c {
+			existing.conn.Close(CloseReplaced, "connection replaced")
+		}
+		existing.conn = c
+		existing.Status = StatusOnline
+		existing.lastSeen = r.now()
+		r.bump()
+		r.sendSnapshotTo(c)
+		r.broadcastSnapshot()
+		r.logger.Info("member reattached", "roomId", r.cfg.ID, "memberId", id.MemberID)
+		if r.barrier != nil && r.allOnlineReady() {
+			r.finishBarrier()
+		}
+		return AttachResult{}
+	}
+	if r.locked {
+		return AttachResult{Err: &AccessError{Code: protocol.CodeRoomLocked, Message: "房间已锁定"}}
+	}
+	if len(r.members) >= r.cfg.MaxMembers {
+		return AttachResult{Err: &AccessError{Code: protocol.CodeRoomFull, Message: "房间已满"}}
+	}
+	m := &member{
+		ID:       id.MemberID,
+		Name:     id.Name,
+		Role:     id.Role,
+		Status:   StatusOnline,
+		conn:     c,
+		lastSeen: r.now(),
+		joinedAt: r.now(),
+	}
+	r.members[m.ID] = m
+	r.order = append(r.order, m.ID)
+	r.bump()
+	r.sendSnapshotTo(c)
+	r.broadcast(protocol.TypeMemberJoined, m.ID, protocol.MarshalPayload(protocol.MemberJoinedPayload{Member: r.memberView(m)}))
+	r.logger.Info("member joined", "roomId", r.cfg.ID, "memberId", m.ID, "role", m.Role)
+	return AttachResult{}
+}
+
+// Detach 在连接读循环结束时调用；graceful 表示客户端优雅关闭（视为主动离开）。
+func (r *Room) Detach(c Conn, graceful bool) {
+	r.Submit(func() {
+		m := r.getByConn(c)
+		if m == nil || m.conn != c {
+			return
+		}
+		if graceful {
+			r.removeMember(m.ID, "left")
+			return
+		}
+		m.conn = nil
+		m.Status = StatusOffline
+		m.disconnectedAt = r.now()
+		m.Ready = nil
+		r.bump()
+		r.broadcastSnapshot()
+		r.logger.Info("member offline", "roomId", r.cfg.ID, "memberId", m.ID)
+	})
+}
+
+// PresenceTick 由 hub 周期调用：清理超时 offline 成员并处理屏障 deadline。
+func (r *Room) PresenceTick() {
+	r.Submit(func() { r.presenceTick(r.now()) })
+}
+
+func (r *Room) presenceTick(now time.Time) {
+	if r.closed {
+		return
+	}
+	for id, m := range r.members {
+		if m.Status == StatusOffline && now.Sub(m.disconnectedAt) > r.cfg.OfflineTTL {
+			r.removeMember(id, "timeout")
+		}
+	}
+	if r.barrier != nil && !r.barrier.deadlineNotified && now.UnixMilli() >= r.barrier.prepareDeadlineMs {
+		r.barrier.deadlineNotified = true
+		// 房主据此查看就绪状态并决定等待/重发 PREPARE/移除成员；屏障不自动解散
+		r.broadcastSnapshot()
+		r.logger.Info("barrier deadline reached", "roomId", r.cfg.ID, "transitionId", r.barrier.transitionID)
+	}
+}
+
+// removeMember 移除成员并广播；房主被移除时转移或关闭房间。
+func (r *Room) removeMember(id, reason string) {
+	m, ok := r.members[id]
+	if !ok {
+		return
+	}
+	if m.conn != nil {
+		m.conn.Close(roomClosedCodeFor(reason), reason)
+	}
+	delete(r.members, id)
+	for i, oid := range r.order {
+		if oid == id {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+	if r.hooks != nil {
+		r.hooks.SessionInvalidated(r.cfg.ID, id)
+	}
+	r.bump()
+	r.broadcast(protocol.TypeMemberLeft, "relay", protocol.MarshalPayload(protocol.MemberLeftPayload{MemberID: id, Reason: reason}))
+	r.logger.Info("member removed", "roomId", r.cfg.ID, "memberId", id, "reason", reason)
+
+	if m.Role == RoleHost {
+		r.transferHostOrClose()
+	}
+	if len(r.members) == 0 && !r.closed {
+		r.closeRoomInternal()
+	}
+}
+
+// transferHostOrClose 把房主转移给最早加入的剩余成员；无人则关闭房间。
+func (r *Room) transferHostOrClose() {
+	if len(r.members) == 0 {
+		r.closeRoomInternal()
+		return
+	}
+	nextID := r.order[0]
+	next := r.members[nextID]
+	next.Role = RoleHost
+	next.Ready = nil
+	r.bump()
+	r.broadcastSnapshot()
+	r.logger.Info("host transferred", "roomId", r.cfg.ID, "memberId", nextID)
+}
+
+func roomClosedCodeFor(reason string) int {
+	switch reason {
+	case "room_closed":
+		return CloseRoomClosed
+	default:
+		return 1000
+	}
+}
+
+// CloseRoomByHost 由房主显式关闭房间（HTTP API 路径）。
+func (r *Room) CloseRoomByHost(actorID string) *AccessError {
+	var err *AccessError
+	if !r.Do(func() { err = r.closeByHost(actorID) }) {
+		return &AccessError{Code: protocol.CodeInternal, Message: "房间不可用"}
+	}
+	return err
+}
+
+func (r *Room) closeByHost(actorID string) *AccessError {
+	m := r.members[actorID]
+	if m == nil || m.Role != RoleHost {
+		return &AccessError{Code: protocol.CodeUnauthorized, Message: "只有房主可以关闭房间"}
+	}
+	r.closeRoomInternal()
+	return nil
+}
+
+// closeRoomInternal 通知每个成员其因房间关闭而离开、断开全部连接并删除房间。
+func (r *Room) closeRoomInternal() {
+	if r.closed {
+		return
+	}
+	r.closed = true
+	r.barrier = nil
+	nowMs := r.now().UnixMilli()
+	for _, m := range r.members {
+		if m.conn == nil {
+			continue
+		}
+		left := protocol.Envelope{
+			V: protocol.ProtocolVersion, Type: protocol.TypeMemberLeft, EventID: protocol.NewEventID(),
+			RoomRevision: r.revision, SenderID: "relay", SentAtMs: nowMs,
+			Payload: protocol.MarshalPayload(protocol.MemberLeftPayload{MemberID: m.ID, Reason: "room_closed"}),
+		}
+		_ = m.conn.Send(left)
+		m.conn.Close(CloseRoomClosed, "room closed")
+	}
+	r.members = map[string]*member{}
+	r.order = nil
+	if r.hooks != nil {
+		r.hooks.RoomRemoved(r.cfg.ID)
+	}
+	// 先置 closeFlag 再关闭通道，Submit 与此互斥
+	r.submitMu.Lock()
+	r.closeFlag.Store(true)
+	close(r.tasks)
+	r.submitMu.Unlock()
+	r.logger.Info("room closed", "roomId", r.cfg.ID)
+}
+
+// ---- 快照与广播 ----
+
+func (r *Room) memberView(m *member) protocol.Member {
+	var ready *bool
+	if r.barrier != nil && m.Status == StatusOnline {
+		ready = m.Ready
+	}
+	return protocol.Member{MemberID: m.ID, Name: m.Name, Role: m.Role, Status: m.Status, Ready: ready}
+}
+
+// livePosition 计算快照时刻的播放位置（播放中按时钟外推）。
+func (r *Room) livePosition() int64 {
+	if !r.playing {
+		return r.positionMs
+	}
+	return r.positionMs + r.now().Sub(r.positionAt).Milliseconds()
+}
+
+func (r *Room) snapshot() protocol.RoomSnapshot {
+	snap := protocol.RoomSnapshot{
+		RoomID:     r.cfg.ID,
+		Revision:   r.revision,
+		Playing:    r.playing,
+		PositionMs: r.livePosition(),
+		Queue:      append([]protocol.Track{}, r.queue...),
+		Members:    make([]protocol.Member, 0, len(r.order)),
+	}
+	if r.currentTrack != nil {
+		track := *r.currentTrack
+		snap.CurrentTrack = &track
+	}
+	if r.transitionID != "" {
+		tid := r.transitionID
+		snap.TransitionID = &tid
+	}
+	if r.startAtMs > 0 {
+		sa := r.startAtMs
+		snap.StartAtMs = &sa
+	}
+	for _, id := range r.order {
+		if m, ok := r.members[id]; ok {
+			snap.Members = append(snap.Members, r.memberView(m))
+		}
+	}
+	return snap
+}
+
+func (r *Room) sendSnapshotTo(c Conn) {
+	env := protocol.Envelope{V: protocol.ProtocolVersion, Type: protocol.TypeRoomSnapshot, EventID: protocol.NewEventID(), RoomRevision: r.revision, SenderID: "relay", SentAtMs: r.now().UnixMilli(), Payload: protocol.MarshalPayload(r.snapshot())}
+	_ = c.Send(env)
+}
+
+func (r *Room) broadcastSnapshot() {
+	r.broadcast(protocol.TypeRoomSnapshot, "relay", protocol.MarshalPayload(r.snapshot()))
+}
+
+// bump 递增房间 revision；所有广播可见的状态变更都必须先调用。
+func (r *Room) bump() { r.revision++ }
+
+func (r *Room) broadcast(t, senderID string, payload json.RawMessage) {
+	env := protocol.Envelope{V: protocol.ProtocolVersion, Type: t, EventID: protocol.NewEventID(), RoomRevision: r.revision, SenderID: senderID, SentAtMs: r.now().UnixMilli(), Payload: payload}
+	var dead []string
+	for _, id := range r.order {
+		m := r.members[id]
+		if m == nil || m.conn == nil || m.Status != StatusOnline {
+			continue
+		}
+		if !m.conn.Send(env) {
+			dead = append(dead, id)
+		}
+	}
+	for _, id := range dead {
+		if m := r.members[id]; m != nil && m.Status == StatusOnline {
+			m.conn = nil
+			m.Status = StatusOffline
+			m.disconnectedAt = r.now()
+			m.Ready = nil
+			r.logger.Info("member marked offline (send failed)", "roomId", r.cfg.ID, "memberId", id)
+		}
+	}
+	if len(dead) > 0 {
+		r.bump()
+		r.broadcastSnapshot()
+	}
+}
+
+func (r *Room) sendToMember(m *member, env protocol.Envelope) {
+	if m.conn == nil || m.Status != StatusOnline {
+		return
+	}
+	if !m.conn.Send(env) {
+		m.conn = nil
+		m.Status = StatusOffline
+		m.disconnectedAt = r.now()
+		m.Ready = nil
+		r.bump()
+		r.broadcastSnapshot()
+	}
+}
+
+func (r *Room) sendError(m *member, code, message, refEventID string) {
+	payload := map[string]string{"code": code}
+	if message != "" {
+		payload["message"] = message
+	}
+	if refEventID != "" {
+		payload["refEventId"] = refEventID
+	}
+	env := protocol.Envelope{V: protocol.ProtocolVersion, Type: protocol.TypeError, EventID: protocol.NewEventID(), RoomRevision: r.revision, SenderID: "relay", SentAtMs: r.now().UnixMilli(), Payload: protocol.MarshalPayload(payload)}
+	r.sendToMember(m, env)
+}

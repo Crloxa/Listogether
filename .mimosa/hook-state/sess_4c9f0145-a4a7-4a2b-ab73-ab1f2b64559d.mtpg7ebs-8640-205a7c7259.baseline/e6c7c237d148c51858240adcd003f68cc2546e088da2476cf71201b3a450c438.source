@@ -1,0 +1,35 @@
+/**
+ * ICE 服务器配置（D-010）：从构建期环境变量 VITE_ICE_SERVERS（JSON RTCIceServer[]）读取，
+ * 未配置或非法时回退到默认公共 STUN。TURN 仅作为无法直连时的可配置兜底路径。
+ */
+
+export interface ParsedIceServers {
+  servers: RTCIceServer[];
+  source: "env" | "default";
+  /** 配置存在但解析失败时的原因；servers 已回退默认值。 */
+  error: string | null;
+}
+
+export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: ["stun:stun.l.google.com:19302"] }];
+
+export function parseIceServers(raw: string | null | undefined): ParsedIceServers {
+  const fallback = (): ParsedIceServers => ({ servers: DEFAULT_ICE_SERVERS, source: "default", error: null });
+  if (raw == null || !raw.trim()) return fallback();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { servers: DEFAULT_ICE_SERVERS, source: "default", error: `VITE_ICE_SERVERS 不是合法 JSON：${String(err)}` };
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return { servers: DEFAULT_ICE_SERVERS, source: "default", error: "VITE_ICE_SERVERS 必须是非空 RTCIceServer 数组" };
+  }
+  for (const item of parsed) {
+    const urls = (item as { urls?: unknown })?.urls;
+    const isUrls = typeof urls === "string" || (Array.isArray(urls) && urls.every((u) => typeof u === "string"));
+    if (!isUrls) {
+      return { servers: DEFAULT_ICE_SERVERS, source: "default", error: "VITE_ICE_SERVERS 每项都需要 urls（字符串或字符串数组）" };
+    }
+  }
+  return { servers: parsed as RTCIceServer[], source: "env", error: null };
+}

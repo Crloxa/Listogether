@@ -1,0 +1,29 @@
+{
+  "capturedAt": "2026-09-06T04:50:44.780Z",
+  "bannerBefore": false,
+  "levelBefore": 0.2838,
+  "after": {
+    "host": null,
+    "lateJoin": true,
+    "member": {
+      "autoResyncUsed": false,
+      "ctxState": "running",
+      "firstAudioLagMs": 551261,
+      "hasTrack": true,
+      "ice": "connected",
+      "level": 0.2898,
+      "muted": false,
+      "pcState": "connected",
+      "remoteTrackMuted": false,
+      "volume": 1
+    },
+    "memberId": "0f8103df7e7e7c176826d6dbc650aa26",
+    "playing": true,
+    "positionMs": 57400,
+    "revision": 23,
+    "role": "listener",
+    "roomId": "c6498f52830334295e2d72f32385316b",
+    "serverNowMs": 1788670244278,
+    "transitionId": "4899dd7250c6a3ebce38897ebfd199c8"
+  }
+}

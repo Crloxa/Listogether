@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-06T06:57:44.552Z",
+  "sessionId": "sess_4c9f0145-a4a7-4a2b-ab73-ab1f2b64559d",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "D:\\Resume_project\\Listogether\\docs\\HANDOFF.md",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 7,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

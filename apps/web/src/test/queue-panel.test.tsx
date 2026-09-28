@@ -1,0 +1,179 @@
+/** QueuePanel 权限与交互测试（Phase 3）：host/co_dj 管理操作、listener 点歌/投票、聊天面板。
+ * 注意：本环境下 .tsx 的 beforeEach 钩子内做全局 stub 会破坏 WebSocket 桩，
+ * 因此沿用 pages.test 的模式——在每个测试体内调用 stubWebSocket()。 */
+import { act, render, screen } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import QueuePanel from "../features/queue/QueuePanel";
+import ChatPanel from "../features/chat/ChatPanel";
+import { RoomStore } from "../transport/ws/room-store";
+import { FakeWebSocket, stubWebSocket } from "./helpers";
+
+const snapshotEnvelope = (revision: number, overrides: Record<string, unknown> = {}) => ({
+  v: 1,
+  type: "ROOM_SNAPSHOT",
+  eventId: "evt-snap",
+  roomRevision: revision,
+  senderId: "relay",
+  sentAtMs: 0,
+  payload: {
+    roomId: "room-1",
+    revision,
+    playing: true,
+    positionMs: 0,
+    currentTrack: { trackId: "k0", title: "Current", durationMs: 100_000 },
+    transitionId: "tr-1",
+    startAtMs: 1_000_000,
+    queue: [],
+    members: [{ memberId: "host-1", name: "房主", role: "host", status: "online" }],
+    ...overrides,
+  },
+});
+
+function newStore() {
+  return new RoomStore({
+    roomId: "room-1",
+    sessionToken: "tok",
+    memberId: "host-1",
+    serverTimeMs: 1_000_000,
+    localTimeMs: 1_000_000,
+  });
+}
+
+const queueData = {
+  library: [
+    { trackId: "k1", title: "Song A", durationMs: 1, addedBy: "host-1", addedAtMs: 1 },
+    { trackId: "k3", title: "Song C", durationMs: 3, addedBy: "host-1", addedAtMs: 2 },
+  ],
+  queue: [
+    {
+      entryId: "qe-1",
+      track: { trackId: "k1", title: "Song A", durationMs: 1 },
+      requestedBy: "m-2",
+      requestedByName: "小明",
+      addedAtMs: 1,
+    },
+    {
+      entryId: "qe-2",
+      track: { trackId: "k2", title: "Song B", durationMs: 2 },
+      requestedBy: "host-1",
+      requestedByName: "房主",
+      addedAtMs: 2,
+    },
+  ],
+  pendingRequests: [
+    {
+      entryId: "pe-1",
+      track: { trackId: "k3", title: "Song C", durationMs: 3 },
+      requestedBy: "m-3",
+      requestedByName: "小红",
+      addedAtMs: 3,
+    },
+  ],
+  history: [{ track: { trackId: "k9", title: "Old", durationMs: 1 }, outcome: "skipped", atMs: 4 }],
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("QueuePanel 权限", () => {
+  function renderPanel(role: "host" | "co_dj" | "listener", selfMemberId = "host-1") {
+    stubWebSocket();
+    const store = newStore();
+    store.connect();
+    const ws = FakeWebSocket.latest!;
+    act(() => ws.simulateOpen());
+    act(() => ws.simulateServerMessage(snapshotEnvelope(5, queueData)));
+    render(
+      <QueuePanel store={store} selfMemberId={selfMemberId} selfRole={role} onSkipCurrent={() => store.trackFinished("skipped")} />,
+    );
+    return { store, ws };
+  }
+
+  it("房主可见审批/排序/跳过/清空/播放模式入口", () => {
+    const { ws } = renderPanel("host");
+    expect(screen.getByTestId("pending-requests")).toHaveTextContent("Song C");
+    expect(screen.getByTestId("approve-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("reject-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("skip-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("clear-queue-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("play-mode-select")).toBeInTheDocument();
+    expect(screen.getByTestId("queue-list")).toHaveTextContent(/点歌：小明/);
+    expect(screen.queryByTestId("skip-vote-btn")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("approve-btn"));
+    expect(ws.lastSent()!.type).toBe("QUEUE_APPROVE");
+    fireEvent.click(screen.getByTestId("skip-btn"));
+    expect(ws.lastSent()!.payload).toEqual({ outcome: "skipped" });
+  });
+
+  it("房主可上下移排序并发送全量新顺序", () => {
+    const { ws } = renderPanel("host");
+    const downs = screen.getAllByTestId("move-down-btn");
+    fireEvent.click(downs[0]!); // Song A 下移 → [B, A]
+    expect(ws.lastSent()!.type).toBe("QUEUE_REORDER");
+    expect(ws.lastSent()!.payload).toEqual({ entryIds: ["qe-2", "qe-1"] });
+  });
+
+  it("listener 只能看到等待审批与投票按钮，无管理入口", () => {
+    const { ws } = renderPanel("listener", "m-2");
+    expect(screen.queryByTestId("approve-btn")).toBeNull();
+    expect(screen.queryByTestId("skip-btn")).toBeNull();
+    expect(screen.queryByTestId("play-mode-select")).toBeNull();
+    expect(screen.getByText("等待房主审批")).toBeInTheDocument();
+    // 自己点歌的条目可撤销
+    expect(screen.getAllByTestId("queue-remove-btn")).toHaveLength(1);
+    // 投票跳过可用
+    fireEvent.click(screen.getByTestId("skip-vote-btn"));
+    expect(ws.lastSent()!.type).toBe("SKIP_VOTE");
+  });
+
+  it("listener 撤销他人条目入口不可见（服务端仍做最终判定）", () => {
+    renderPanel("listener", "m-9");
+    // m-9 不是任何条目的点歌人：队列与待审批都无撤销按钮
+    expect(screen.queryByTestId("queue-remove-btn")).toBeNull();
+    expect(screen.queryByTestId("pending-remove-btn")).toBeNull();
+  });
+
+  it("全员可从快照曲库点歌（QUEUE_REQUEST）", () => {
+    const { ws } = renderPanel("listener", "m-2");
+    const requests = screen.getAllByTestId("request-track-btn");
+    expect(requests.length).toBe(2);
+    fireEvent.click(requests[0]!);
+    expect(ws.lastSent()!.type).toBe("QUEUE_REQUEST");
+    expect(ws.lastSent()!.payload).toEqual({ trackId: "k1" });
+  });
+
+  it("切换播放模式发送 PLAY_MODE", () => {
+    const { ws } = renderPanel("co_dj");
+    fireEvent.change(screen.getByTestId("play-mode-select"), { target: { value: "shuffle" } });
+    expect(ws.lastSent()!.type).toBe("PLAY_MODE");
+    expect(ws.lastSent()!.payload).toEqual({ mode: "shuffle" });
+  });
+});
+
+describe("ChatPanel", () => {
+  it("发送文本与表情反应；显示历史消息", () => {
+    stubWebSocket();
+    const store = newStore();
+    store.connect();
+    const ws = FakeWebSocket.latest!;
+    act(() => ws.simulateOpen());
+    act(() =>
+      ws.simulateServerMessage({
+        v: 1, type: "CHAT_HISTORY", eventId: "e", roomRevision: 1, senderId: "relay", sentAtMs: 0,
+        payload: { messages: [{ messageId: "m1", memberId: "m-2", name: "小明", kind: "text", text: "大家好", sentAtMs: 1 }] },
+      }),
+    );
+    render(<ChatPanel store={store} selfMemberId="host-1" />);
+    expect(screen.getByTestId("chat-list")).toHaveTextContent("大家好");
+
+    fireEvent.change(screen.getByTestId("chat-input"), { target: { value: "晚上好" } });
+    fireEvent.click(screen.getByTestId("chat-send-btn"));
+    expect(ws.lastSent()!.payload).toEqual({ kind: "text", text: "晚上好" });
+
+    fireEvent.click(screen.getByTestId("reaction-👍"));
+    expect(ws.lastSent()!.payload).toEqual({ kind: "reaction", text: "👍" });
+  });
+});

@@ -1,0 +1,25 @@
+{
+  "name": "@listogether/protocol",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Listogether 房间协议：canonical JSON Schema、TypeScript 类型与 envelope 校验器",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.7"
+  }
+}

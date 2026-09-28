@@ -1,0 +1,181 @@
+/** useHostLibrary：房主本机曲库状态与导入编排（Phase 3，D-012）。
+ * 房主浏览器内的文件注册表：trackId → File；成员点歌后屏障按 trackId 在此解析文件。
+ * 仅元数据经 LIBRARY_ADD 进房间；音频文件永远不上传。 */
+import { useCallback, useEffect, useRef, useState } from "react";
+import { decodeAudioFile } from "../../media/local-source/buffer-source";
+import type { RoomStore } from "../../transport/ws/room-store";
+import {
+  entryBindingKey,
+  exportLibrary,
+  fileBindingKey,
+  fileTitle,
+  importEntriesToHost,
+  loadLibrary,
+  makeTrackId,
+  parseLibraryImport,
+  readId3Tags,
+  saveLibrary,
+  type HostLibraryEntry,
+  type LibraryExport,
+} from "./library";
+
+export interface ImportedTrackInfo {
+  trackId: string;
+  title: string;
+  durationMs: number;
+}
+
+export interface HostLibraryApi {
+  entries: HostLibraryEntry[];
+  importing: boolean;
+  importErrors: string[];
+  clearImportErrors(): void;
+  /** 导入文件；返回成功导入/绑定的条目信息（DEV 钩子与提示用）。 */
+  importFiles(files: File[]): Promise<ImportedTrackInfo[]>;
+  removeEntry(trackId: string): void;
+  exportJson(): string;
+  importJson(text: string): Promise<void>;
+  /** 当前导入状态摘要（调试/证据用）。 */
+  debug(): { count: number; loaded: number; importing: boolean };
+}
+
+export function useHostLibrary(store: RoomStore, enabled: boolean): HostLibraryApi {
+  const [entries, setEntries] = useState<HostLibraryEntry[]>(() => loadLibrary(globalThis.localStorage ?? null));
+  const [importing, setImporting] = useState(false);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const decodeCtxRef = useRef<AudioContext | null>(null);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+
+  // 曲库元数据持久化（仅房主本机）
+  useEffect(() => {
+    if (!enabled) return;
+    saveLibrary(globalThis.localStorage ?? null, entries);
+  }, [entries, enabled]);
+
+  const getDecodeCtx = useCallback((): AudioContext => {
+    if (!decodeCtxRef.current || decodeCtxRef.current.state === "closed") {
+      decodeCtxRef.current = new AudioContext();
+    }
+    return decodeCtxRef.current;
+  }, []);
+
+  const importFiles = useCallback(
+    async (files: File[]): Promise<ImportedTrackInfo[]> => {
+      if (files.length === 0) return [];
+      setImporting(true);
+      const imported: ImportedTrackInfo[] = [];
+      const errors: string[] = [];
+      const audioFiles = files.filter((f) => f.size > 0);
+      for (const file of audioFiles) {
+        try {
+          const bindingKey = fileBindingKey(file);
+          const bindTarget = entriesRef.current.find((e) => entryBindingKey(e) === bindingKey);
+          const tags = await readId3Tags(file);
+          if (bindTarget && !bindTarget.file) {
+            // 重新绑定：保留 trackId（已有队列请求不失效），刷新元数据
+            const { buffer } = await decodeAudioFile(file, getDecodeCtx());
+            if (bindTarget.coverUrl) URL.revokeObjectURL(bindTarget.coverUrl);
+            const coverUrl = tags.coverBlob ? URL.createObjectURL(tags.coverBlob) : null;
+            setEntries((prev) =>
+              prev.map((e) =>
+                e.trackId === bindTarget.trackId
+                  ? {
+                      ...e,
+                      file,
+                      storedFile: null,
+                      coverUrl,
+                      title: tags.title || e.title,
+                      artist: tags.artist ?? e.artist,
+                      durationMs: Math.round(buffer.duration * 1000),
+                    }
+                  : e,
+              ),
+            );
+            imported.push({ trackId: bindTarget.trackId, title: tags.title || bindTarget.title, durationMs: Math.round(buffer.duration * 1000) });
+            continue;
+          }
+          const trackId = makeTrackId(file);
+          if (entriesRef.current.some((e) => e.trackId === trackId)) {
+            // 同一文件重复导入：仅补齐文件绑定
+            setEntries((prev) => prev.map((e) => (e.trackId === trackId && !e.file ? { ...e, file, storedFile: null } : e)));
+            const existing = entriesRef.current.find((e) => e.trackId === trackId);
+            if (existing) imported.push({ trackId, title: existing.title, durationMs: existing.durationMs });
+            continue;
+          }
+          const { buffer } = await decodeAudioFile(file, getDecodeCtx());
+          const coverUrl = tags.coverBlob ? URL.createObjectURL(tags.coverBlob) : null;
+          const entry: HostLibraryEntry = {
+            trackId,
+            title: tags.title || fileTitle(file.name),
+            artist: tags.artist ?? "",
+            durationMs: Math.round(buffer.duration * 1000),
+            addedAtMs: Date.now(),
+            file,
+            storedFile: null,
+            coverUrl,
+          };
+          setEntries((prev) => [...prev, entry]);
+          imported.push({ trackId, title: entry.title, durationMs: entry.durationMs });
+        } catch {
+          errors.push(`${file.name}：浏览器不支持该格式或文件已损坏`);
+        }
+      }
+      if (errors.length > 0) setImportErrors((prev) => [...prev, ...errors].slice(-20));
+      setImporting(false);
+      return imported;
+    },
+    [getDecodeCtx],
+  );
+
+  // 导入完成后批量上报元数据（entries 稳定后统一发送；仅房主）
+  useEffect(() => {
+    if (!enabled || importing) return;
+    const missing = entries.filter((e) => {
+      const room = store.getState().room;
+      return !room?.library?.some((l) => l.trackId === e.trackId);
+    });
+    if (missing.length === 0) return;
+    store.libraryAdd(
+      missing.map((e) => ({ trackId: e.trackId, title: e.title, artist: e.artist || undefined, durationMs: e.durationMs })),
+    );
+  }, [entries, importing, enabled, store]);
+
+  const removeEntry = useCallback(
+    (trackId: string) => {
+      setEntries((prev) => {
+        const target = prev.find((e) => e.trackId === trackId);
+        if (target?.coverUrl) URL.revokeObjectURL(target.coverUrl);
+        return prev.filter((e) => e.trackId !== trackId);
+      });
+      store.libraryRemove(trackId);
+    },
+    [store],
+  );
+
+  const exportJson = useCallback(() => JSON.stringify(exportLibrary(entriesRef.current), null, 2), []);
+
+  const importJson = useCallback(async (text: string) => {
+    let data: LibraryExport;
+    try {
+      data = parseLibraryImport(text);
+    } catch (err) {
+      setImportErrors((prev) => [...prev, (err as Error).message].slice(-20));
+      return;
+    }
+    const imported = importEntriesToHost(data);
+    setEntries((prev) => {
+      const known = new Set(prev.map((e) => e.trackId));
+      return [...prev, ...imported.filter((e) => !known.has(e.trackId))];
+    });
+  }, []);
+
+  const clearImportErrors = useCallback(() => setImportErrors([]), []);
+
+  const debug = useCallback(
+    () => ({ count: entriesRef.current.length, loaded: entriesRef.current.filter((e) => e.file).length, importing }),
+    [importing],
+  );
+
+  return { entries, importing, importErrors, clearImportErrors, importFiles, removeEntry, exportJson, importJson, debug };
+}

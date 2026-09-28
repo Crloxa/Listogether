@@ -1,0 +1,187 @@
+package ws
+
+import (
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+var testOrigins = []string{"http://localhost:5173"}
+
+func newTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := httptest.NewServer(NewHandler(logger, testOrigins))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func dial(t *testing.T, srv *httptest.Server, origin string) *websocket.Conn {
+	t.Helper()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	header := http.Header{}
+	if origin != "" {
+		header.Set("Origin", origin)
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(url, header)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+func sendJSON(t *testing.T, conn *websocket.Conn, v any) {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
+type errorReply struct {
+	Type    string `json:"type"`
+	Payload struct {
+		Code       string `json:"code"`
+		Message    string `json:"message"`
+		RefEventID string `json:"refEventId"`
+	} `json:"payload"`
+}
+
+func readErrorReply(t *testing.T, conn *websocket.Conn) errorReply {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read error reply: %v", err)
+	}
+	var reply errorReply
+	if err := json.Unmarshal(data, &reply); err != nil {
+		t.Fatalf("reply not JSON: %v\n%s", err, data)
+	}
+	if reply.Type != "ERROR" {
+		t.Fatalf("reply type = %s, want ERROR", reply.Type)
+	}
+	return reply
+}
+
+func TestRejectsGarbageWithInvalidMessage(t *testing.T) {
+	srv := newTestServer(t)
+	conn := dial(t, srv, "http://localhost:5173")
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("this is not json")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	reply := readErrorReply(t, conn)
+	if reply.Payload.Code != "INVALID_MESSAGE" {
+		t.Fatalf("code = %s, want INVALID_MESSAGE", reply.Payload.Code)
+	}
+}
+
+func TestRejectsUnknownType(t *testing.T) {
+	srv := newTestServer(t)
+	conn := dial(t, srv, "http://localhost:5173")
+	sendJSON(t, conn, map[string]any{
+		"v": 1, "type": "NOT_A_TYPE", "eventId": "e1", "roomRevision": 0,
+		"senderId": "m-1", "sentAtMs": 0, "payload": map[string]any{},
+	})
+	reply := readErrorReply(t, conn)
+	if reply.Payload.Code != "UNKNOWN_TYPE" {
+		t.Fatalf("code = %s, want UNKNOWN_TYPE", reply.Payload.Code)
+	}
+	if reply.Payload.RefEventID != "e1" {
+		t.Fatalf("refEventId = %q, want e1", reply.Payload.RefEventID)
+	}
+}
+
+func TestRejectsUnsupportedVersion(t *testing.T) {
+	srv := newTestServer(t)
+	conn := dial(t, srv, "http://localhost:5173")
+	sendJSON(t, conn, map[string]any{
+		"v": 99, "type": "HEARTBEAT", "eventId": "e2", "roomRevision": 0,
+		"senderId": "m-1", "sentAtMs": 0, "payload": map[string]any{"clientTimeMs": 1},
+	})
+	reply := readErrorReply(t, conn)
+	if reply.Payload.Code != "UNSUPPORTED_VERSION" {
+		t.Fatalf("code = %s, want UNSUPPORTED_VERSION", reply.Payload.Code)
+	}
+}
+
+func TestRejectsUnknownEnvelopeFields(t *testing.T) {
+	srv := newTestServer(t)
+	conn := dial(t, srv, "http://localhost:5173")
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(
+		`{"v":1,"type":"HEARTBEAT","eventId":"e3","roomRevision":0,"senderId":"m-1","sentAtMs":0,"payload":{"clientTimeMs":1},"sneakyField":"x"}`,
+	)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	reply := readErrorReply(t, conn)
+	if reply.Payload.Code != "INVALID_MESSAGE" {
+		t.Fatalf("code = %s, want INVALID_MESSAGE", reply.Payload.Code)
+	}
+}
+
+func TestAcceptsValidMessageSilently(t *testing.T) {
+	srv := newTestServer(t)
+	conn := dial(t, srv, "http://localhost:5173")
+	sendJSON(t, conn, map[string]any{
+		"v": 1, "type": "HEARTBEAT", "eventId": "e4", "roomRevision": 0,
+		"senderId": "m-1", "sentAtMs": 0, "payload": map[string]any{"clientTimeMs": 42},
+	})
+	_ = conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	_, data, err := conn.ReadMessage()
+	if err == nil {
+		t.Fatalf("valid message should not trigger a reply in Phase 0, got: %s", data)
+	}
+	// 超时是预期行为；真实立即关闭则视为失败
+	if strings.Contains(err.Error(), "closed") || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseAbnormalClosure) {
+		t.Fatalf("connection should stay open after valid message: %v", err)
+	}
+}
+
+func TestRejectsBinaryMessage(t *testing.T) {
+	srv := newTestServer(t)
+	conn := dial(t, srv, "http://localhost:5173")
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte{0x00, 0x01, 0x02}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	reply := readErrorReply(t, conn)
+	if reply.Payload.Code != "INVALID_MESSAGE" {
+		t.Fatalf("code = %s, want INVALID_MESSAGE", reply.Payload.Code)
+	}
+}
+
+func TestRejectsOversizedMessage(t *testing.T) {
+	srv := newTestServer(t)
+	conn := dial(t, srv, "http://localhost:5173")
+	big := strings.Repeat("a", maxMessageSize+1)
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(big)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err := conn.ReadMessage()
+	if err == nil {
+		t.Fatal("oversized message should terminate the read loop")
+	}
+}
+
+func TestRejectsDisallowedOrigin(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := httptest.NewServer(NewHandler(logger, testOrigins))
+	defer srv.Close()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	header := http.Header{"Origin": []string{"https://evil.example"}}
+	if _, _, err := websocket.DefaultDialer.Dial(url, header); err == nil {
+		t.Fatal("disallowed origin should fail the handshake")
+	}
+}

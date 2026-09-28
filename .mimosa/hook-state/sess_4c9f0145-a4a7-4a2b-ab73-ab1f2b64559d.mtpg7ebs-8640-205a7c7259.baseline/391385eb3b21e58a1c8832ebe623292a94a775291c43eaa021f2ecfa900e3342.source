@@ -1,0 +1,263 @@
+// playback.go 实现房间消息路由：播放控制（房主权威）、下一首屏障和信令转发。
+// 权限矩阵与 revision 规则见 docs/03-technical-design.md“权限矩阵”。
+package room
+
+import (
+	"listogether/apps/relay/internal/protocol"
+)
+
+// HandleEnvelope 处理已通过信封校验的房间消息；senderId 以会话绑定成员为准。
+// 入口方法把任务投递到 actor loop，立即返回。
+func (r *Room) HandleEnvelope(c Conn, env *protocol.Envelope) {
+	r.Submit(func() {
+		m := r.getByConn(c)
+		if m == nil || m.conn != c {
+			return // 连接尚未挂载或已被替换
+		}
+		m.lastSeen = r.now()
+		r.route(m, env)
+	})
+}
+
+func (r *Room) route(m *member, env *protocol.Envelope) {
+	if r.closed {
+		return
+	}
+	switch env.Type {
+	case protocol.TypeHeartbeat:
+		// 仅用于连接健康；payload 已由 ws 层校验，这里只刷新 lastSeen
+		if _, perr := protocol.DecodeHeartbeat(env.Payload); perr != nil {
+			r.sendError(m, perr.Code, perr.Message, env.EventID)
+		}
+	case protocol.TypePlay, protocol.TypePause, protocol.TypeSeek:
+		r.handlePosition(m, env)
+	case protocol.TypeNextTrackPrepare:
+		r.handlePrepare(m, env)
+	case protocol.TypeReady:
+		r.handleReady(m, env)
+	case protocol.TypeNextTrackStart:
+		r.handleForceStart(m, env)
+	case protocol.TypeResyncRequest:
+		r.handleResync(m, env)
+	case protocol.TypeWebrtcOffer, protocol.TypeWebrtcAnswer:
+		r.forwardSdp(m, env)
+	case protocol.TypeIceCandidate:
+		r.forwardIce(m, env)
+	default:
+		r.sendError(m, protocol.CodeInvalidMessage, "该事件类型不接受客户端提交", env.EventID)
+	}
+}
+
+// checkWrite 统一处理权限与旧 revision 拒绝。
+func (r *Room) checkWrite(m *member, env *protocol.Envelope, allowedRoles ...string) *AccessError {
+	if err := r.requireRole(m, allowedRoles...); err != nil {
+		return err
+	}
+	if protocol.IsStale(env, r.revision) {
+		return &AccessError{Code: protocol.CodeStaleRevision, Message: "房间状态已更新，请重新同步"}
+	}
+	return nil
+}
+
+func (r *Room) handlePosition(m *member, env *protocol.Envelope) {
+	// 播放/暂停/拖动是房主权威操作（D-002），共同 DJ 无权
+	if err := r.checkWrite(m, env, RoleHost); err != nil {
+		r.sendError(m, err.Code, err.Message, env.EventID)
+		return
+	}
+	p, perr := protocol.DecodePosition(env.Payload)
+	if perr != nil {
+		r.sendError(m, perr.Code, perr.Message, env.EventID)
+		return
+	}
+	now := r.now()
+	switch env.Type {
+	case protocol.TypePlay:
+		r.playing = true
+		r.positionMs = p.PositionMs
+		r.positionAt = now
+	case protocol.TypePause:
+		r.playing = false
+		r.positionMs = p.PositionMs
+	case protocol.TypeSeek:
+		r.positionMs = p.PositionMs
+		r.positionAt = now
+	}
+	r.bump()
+	r.broadcast(env.Type, m.ID, protocol.MarshalPayload(p))
+}
+
+func (r *Room) handlePrepare(m *member, env *protocol.Envelope) {
+	// 切歌：房主或共同 DJ（产品概览角色表）
+	if err := r.checkWrite(m, env, RoleHost, RoleCoDJ); err != nil {
+		r.sendError(m, err.Code, err.Message, env.EventID)
+		return
+	}
+	p, perr := protocol.DecodeNextTrackPrepare(env.Payload)
+	if perr != nil {
+		r.sendError(m, perr.Code, perr.Message, env.EventID)
+		return
+	}
+	nowMs := r.now().UnixMilli()
+	if p.PrepareDeadlineMs <= nowMs || p.StartAtMs <= nowMs {
+		r.sendError(m, protocol.CodeInvalidMessage, "prepareDeadlineMs 与 startAtMs 必须晚于服务器当前时间", env.EventID)
+		return
+	}
+	readyFalse := false
+	r.barrier = &barrier{
+		transitionID:      p.TransitionID,
+		track:             p.Track,
+		startPositionMs:   p.StartPositionMs,
+		prepareDeadlineMs: p.PrepareDeadlineMs,
+		startAtMs:         p.StartAtMs,
+	}
+	for _, id := range r.order {
+		if mm := r.members[id]; mm != nil && mm.Status == StatusOnline {
+			mm.Ready = &readyFalse
+		}
+	}
+	r.bump()
+	r.broadcast(protocol.TypeNextTrackPrepare, m.ID, protocol.MarshalPayload(p))
+	r.logger.Info("barrier started", "roomId", r.cfg.ID, "transitionId", p.TransitionID, "by", m.ID)
+}
+
+func (r *Room) handleReady(m *member, env *protocol.Envelope) {
+	// READY 不做 revision 检查：以 transitionId 匹配为准
+	p, perr := protocol.DecodeReady(env.Payload)
+	if perr != nil {
+		r.sendError(m, perr.Code, perr.Message, env.EventID)
+		return
+	}
+	if r.barrier == nil || r.barrier.transitionID != p.TransitionID {
+		r.sendError(m, protocol.CodeInvalidMessage, "没有进行中的准备屏障或 transitionId 不匹配", env.EventID)
+		return
+	}
+	readyTrue := true
+	m.Ready = &readyTrue
+	r.bump()
+	r.broadcastSnapshot()
+	if r.allOnlineReady() {
+		r.finishBarrier()
+	}
+}
+
+func (r *Room) allOnlineReady() bool {
+	if r.barrier == nil {
+		return false
+	}
+	for _, id := range r.order {
+		m := r.members[id]
+		if m == nil || m.Status != StatusOnline {
+			continue
+		}
+		if m.Ready == nil || !*m.Ready {
+			return false
+		}
+	}
+	return true
+}
+
+// finishBarrier 全员就绪：置当前歌曲并广播统一开始时间。
+func (r *Room) finishBarrier() {
+	r.finishBarrierWithStart(r.barrier.startAtMs)
+}
+
+// finishBarrierWithStart 以指定开始时间完成屏障；强制开始路径用它跳过未就绪成员。
+func (r *Room) finishBarrierWithStart(startAtMs int64) {
+	b := r.barrier
+	r.barrier = nil
+	track := b.track
+	r.currentTrack = &track
+	r.playing = true
+	r.positionMs = b.startPositionMs
+	r.positionAt = r.now()
+	r.transitionID = b.transitionID
+	r.startAtMs = startAtMs
+	// 队列占位：若该曲目在队首则移除（Phase 3 队列管理的衔接点）
+	if len(r.queue) > 0 && r.queue[0].TrackID == track.TrackID {
+		r.queue = r.queue[1:]
+	}
+	r.bump()
+	r.broadcast(protocol.TypeNextTrackStart, "relay", protocol.MarshalPayload(protocol.NextTrackStartPayload{TransitionID: b.transitionID, StartAtMs: startAtMs}))
+	r.logger.Info("barrier completed", "roomId", r.cfg.ID, "transitionId", b.transitionID, "startAtMs", startAtMs)
+}
+
+// handleForceStart 处理屏障超时后的强制开始：房主/共同 DJ 跳过未就绪成员，
+// 保证房间不因单个成员无限等待（Phase 2 出口条件）。
+func (r *Room) handleForceStart(m *member, env *protocol.Envelope) {
+	if err := r.checkWrite(m, env, RoleHost, RoleCoDJ); err != nil {
+		r.sendError(m, err.Code, err.Message, env.EventID)
+		return
+	}
+	p, perr := protocol.DecodeNextTrackStart(env.Payload)
+	if perr != nil {
+		r.sendError(m, perr.Code, perr.Message, env.EventID)
+		return
+	}
+	if r.barrier == nil {
+		r.sendError(m, protocol.CodeInvalidMessage, "没有进行中的准备屏障", env.EventID)
+		return
+	}
+	if r.barrier.transitionID != p.TransitionID {
+		r.sendError(m, protocol.CodeInvalidMessage, "transitionId 与当前屏障不匹配", env.EventID)
+		return
+	}
+	startAtMs := p.StartAtMs
+	if startAtMs <= 0 {
+		startAtMs = r.barrier.startAtMs
+	}
+	r.finishBarrierWithStart(startAtMs)
+}
+
+func (r *Room) handleResync(m *member, env *protocol.Envelope) {
+	// 重新同步只影响请求者：补发快照修复其状态；事件转发给房主（Phase 2 据此重建音频流）
+	if _, perr := protocol.DecodeResyncRequest(env.Payload); perr != nil {
+		r.sendError(m, perr.Code, perr.Message, env.EventID)
+		return
+	}
+	r.sendSnapshotTo(m.conn)
+	if host := r.findFirstByRole(RoleHost); host != nil && host.ID != m.ID {
+		forwarded := *env
+		forwarded.SenderID = m.ID
+		r.sendToMember(host, forwarded)
+	}
+}
+
+func (r *Room) forwardSdp(m *member, env *protocol.Envelope) {
+	p, perr := protocol.DecodeWebrtcSdp(env.Payload)
+	if perr != nil {
+		r.sendError(m, perr.Code, perr.Message, env.EventID)
+		return
+	}
+	r.forwardTo(m, env, p.ToMemberID)
+}
+
+func (r *Room) forwardIce(m *member, env *protocol.Envelope) {
+	p, perr := protocol.DecodeIceCandidate(env.Payload)
+	if perr != nil {
+		r.sendError(m, perr.Code, perr.Message, env.EventID)
+		return
+	}
+	r.forwardTo(m, env, p.ToMemberID)
+}
+
+// forwardTo 转发信令到目标成员；目标不在线时静默丢弃并记录（不回 ERROR，避免噪音）。
+func (r *Room) forwardTo(from *member, env *protocol.Envelope, toMemberID string) {
+	target := r.members[toMemberID]
+	if target == nil || target.Status != StatusOnline || target.conn == nil {
+		r.logger.Debug("signaling dropped (target unavailable)", "roomId", r.cfg.ID, "type", env.Type, "to", toMemberID)
+		return
+	}
+	forwarded := *env
+	forwarded.SenderID = from.ID
+	r.sendToMember(target, forwarded)
+}
+
+func (r *Room) findFirstByRole(role string) *member {
+	for _, id := range r.order {
+		if m := r.members[id]; m != nil && m.Role == role && m.Status == StatusOnline {
+			return m
+		}
+	}
+	return nil
+}

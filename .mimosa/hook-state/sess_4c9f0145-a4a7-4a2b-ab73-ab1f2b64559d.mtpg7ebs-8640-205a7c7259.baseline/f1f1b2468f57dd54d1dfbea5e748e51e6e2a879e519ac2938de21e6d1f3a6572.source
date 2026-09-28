@@ -1,0 +1,80 @@
+/**
+ * 房主侧每成员 PeerConnection 的建联/信令/释放。
+ * offer 一律由房主发起（D-011）；每成员一条独立连接，离开即关闭。
+ */
+
+export interface HostPeerDeps {
+  iceServers: RTCIceServer[];
+  /** 发送 WEBRTC_OFFER 到目标成员。 */
+  sendOffer(memberId: string, sdp: string): void;
+  /** 发送 ICE_CANDIDATE 到目标成员。 */
+  sendCandidate(memberId: string, candidate: string): void;
+  onConnectionStateChange(memberId: string, state: RTCPeerConnectionState): void;
+}
+
+/** 单个成员的连接会话：独立 dest 节点 + PeerConnection。 */
+export class HostPeerSession {
+  readonly pc: RTCPeerConnection;
+  readonly dest: MediaStreamAudioDestinationNode;
+
+  constructor(
+    readonly memberId: string,
+    ctx: AudioContext,
+    private readonly deps: HostPeerDeps,
+  ) {
+    this.dest = ctx.createMediaStreamDestination();
+    this.pc = new RTCPeerConnection({ iceServers: deps.iceServers });
+    const track = this.dest.stream.getAudioTracks()[0];
+    if (track) this.pc.addTrack(track, this.dest.stream);
+    this.pc.onicecandidate = (event) => {
+      const cand = event.candidate;
+      // candidate 为空表示候选收集结束，无需转发
+      if (cand && cand.candidate) deps.sendCandidate(this.memberId, cand.candidate);
+    };
+    this.pc.onconnectionstatechange = () => deps.onConnectionStateChange(this.memberId, this.pc.connectionState);
+  }
+
+  /** 创建 offer 并发送；由 ensure 路径调用（建联或重建）。 */
+  async createAndSendOffer(): Promise<void> {
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
+    const sdp = this.pc.localDescription?.sdp;
+    if (sdp) this.deps.sendOffer(this.memberId, sdp);
+  }
+
+  async acceptAnswer(sdp: string): Promise<void> {
+    await this.pc.setRemoteDescription({ type: "answer", sdp });
+  }
+
+  async addIceCandidate(candidate: string): Promise<void> {
+    try {
+      // 单音频 m-line，mid 固定为 0
+      await this.pc.addIceCandidate({ candidate, sdpMid: "0", sdpMLineIndex: 0 });
+    } catch {
+      /* 无效候选忽略，不中断连接 */
+    }
+  }
+
+  close(): void {
+    this.pc.onicecandidate = null;
+    this.pc.onconnectionstatechange = null;
+    try {
+      this.pc.close();
+    } catch {
+      /* 已关闭 */
+    }
+  }
+}
+
+/** diff 出需要创建/关闭的成员集合（纯函数，便于测试）。 */
+export function diffPeerTargets(
+  onlineMemberIds: string[],
+  existingMemberIds: string[],
+): { create: string[]; close: string[] } {
+  const online = new Set(onlineMemberIds);
+  const existing = new Set(existingMemberIds);
+  return {
+    create: onlineMemberIds.filter((id) => !existing.has(id)),
+    close: existingMemberIds.filter((id) => !online.has(id)),
+  };
+}

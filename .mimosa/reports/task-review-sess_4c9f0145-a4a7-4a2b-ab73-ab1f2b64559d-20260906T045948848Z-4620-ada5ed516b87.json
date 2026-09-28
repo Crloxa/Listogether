@@ -1,0 +1,951 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20260906T045948848Z-4620-ada5ed516b87",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "baseline-read",
+      "target": "apps/web/src/test/media-units.test.ts",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "scan",
+      "target": "packages/protocol/src/types.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/relay/internal/protocol/payload.go",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/relay/internal/room/room.go",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/relay/internal/room/playback.go",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/relay/internal/room/room_test.go",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/audio-clock.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/webrtc/ice-config.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/local-source/buffer-source.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/webrtc/peer-targets.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/webrtc/member-peer.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/host-audio.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/member-audio.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/media/wiring.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/transport/ws/room-store.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/vite-env.d.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/features/room/RoomPage.tsx",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/app/HomePage.tsx",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/test/media-units.test.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/test/pages.test.tsx",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "apps/web/src/test/room-store.test.ts",
+      "reason": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 72,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 19
+    },
+    "change_tracking": {
+      "touched_observed": 17,
+      "touched_retained": 17,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 20,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 20,
+      "selected_files": 20,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 20,
+      "scanned_files": 0,
+      "skipped_files": 0,
+      "failed_files": 20,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "baseline_snapshot_unreadable": 1,
+      "scanner_failed": 20,
+      "project_check_failed": 21
+    },
+    "reasons": [
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "apps/web/src/test/media-units.test.ts",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "packages/protocol/src/types.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/protocol/payload.go",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/room/room.go",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/room/playback.go",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/room/room_test.go",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/audio-clock.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/webrtc/ice-config.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/local-source/buffer-source.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/webrtc/peer-targets.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/webrtc/member-peer.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/host-audio.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/member-audio.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/wiring.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/transport/ws/room-store.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/vite-env.d.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/features/room/RoomPage.tsx",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/app/HomePage.tsx",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/test/media-units.test.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/test/pages.test.tsx",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "apps/web/src/test/room-store.test.ts",
+        "detail": "spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "apps/web/src/test/media-units.test.ts",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "packages/protocol/src/types.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/protocol/payload.go",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/room/room.go",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/room/playback.go",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/relay/internal/room/room_test.go",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/audio-clock.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/webrtc/ice-config.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/local-source/buffer-source.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/webrtc/peer-targets.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/webrtc/member-peer.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/host-audio.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/member-audio.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/media/wiring.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/transport/ws/room-store.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/vite-env.d.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/features/room/RoomPage.tsx",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/app/HomePage.tsx",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/test/media-units.test.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/test/pages.test.tsx",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "apps/web/src/test/room-store.test.ts",
+        "detail": "scanner_failed: spawnSync C:\\nvm4w\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-09-06T04:59:48.848Z",
+  "session_id": "sess_4c9f0145-a4a7-4a2b-ab73-ab1f2b64559d",
+  "target": ".",
+  "revision": null,
+  "rules_version": "unavailable",
+  "diff_hash": "ebea9a8fff091b23d34384ec01d65a056e0181d2c3c8e1c3fce5fc59a130304e",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 20,
+    "changed_files": [
+      {
+        "file": "apps/relay/internal/protocol/payload.go",
+        "ranges": [
+          {
+            "start": 61,
+            "end": 69
+          },
+          {
+            "start": 72,
+            "end": 81
+          },
+          {
+            "start": 136,
+            "end": 151
+          }
+        ],
+        "before_hash": "f8da548fc1c2724e6bcc9ef95937a2a2d09e3f26397777b1170b23590914fe8f",
+        "after_hash": "7ec81ab75871ec96a8798d90a8f1a4887a611d2b057e1c908cc52a4565234fbc"
+      },
+      {
+        "file": "apps/relay/internal/room/playback.go",
+        "ranges": [
+          {
+            "start": 38,
+            "end": 39
+          },
+          {
+            "start": 162,
+            "end": 166
+          },
+          {
+            "start": 175,
+            "end": 175
+          },
+          {
+            "start": 181,
+            "end": 209
+          }
+        ],
+        "before_hash": "248e73a7d9fdae619e313ced1a905b3a897d11410a224c58550b484b0dfc9372",
+        "after_hash": "be23fc9adffb2ecc37d7749d491b8e2022d5ecc4a59989803053539339c438db"
+      },
+      {
+        "file": "apps/relay/internal/room/room_test.go",
+        "ranges": [
+          {
+            "start": 559,
+            "end": 691
+          }
+        ],
+        "before_hash": "5f205b76f0340b48b97288b7fe319f0ee1402083bf5dcd18a156abdcfcbad9c0",
+        "after_hash": "d54db7828147618761bdc4b63445738aa98ce6733feba957b5c6e45f967f9245"
+      },
+      {
+        "file": "apps/relay/internal/room/room.go",
+        "ranges": [
+          {
+            "start": 506,
+            "end": 513
+          }
+        ],
+        "before_hash": "239f95c7cbd15001e98095a15ed159538d826598f5997340bc98c0385ded1d12",
+        "after_hash": "f99c27d9b0ae205a444e6fa020c578ad6fc4748bbc8766af443f12dd1a5bbd45"
+      },
+      {
+        "file": "apps/web/src/app/HomePage.tsx",
+        "ranges": [
+          {
+            "start": 78,
+            "end": 78
+          }
+        ],
+        "before_hash": "c36b73308ed92296e2e7288809f89be24399b390eb549ea5b29f6ab352495364",
+        "after_hash": "2d04d4b49c86816da1bd711cbdeca4a2ac75945796641595a2229b564bc933a3"
+      },
+      {
+        "file": "apps/web/src/features/room/RoomPage.tsx",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 3
+          },
+          {
+            "start": 5,
+            "end": 7
+          },
+          {
+            "start": 58,
+            "end": 72
+          },
+          {
+            "start": 76,
+            "end": 80
+          },
+          {
+            "start": 88,
+            "end": 160
+          },
+          {
+            "start": 179,
+            "end": 192
+          },
+          {
+            "start": 203,
+            "end": 242
+          },
+          {
+            "start": 286,
+            "end": 297
+          },
+          {
+            "start": 308,
+            "end": 310
+          },
+          {
+            "start": 316,
+            "end": 321
+          },
+          {
+            "start": 326,
+            "end": 326
+          },
+          {
+            "start": 329,
+            "end": 329
+          },
+          {
+            "start": 340,
+            "end": 340
+          },
+          {
+            "start": 344,
+            "end": 348
+          },
+          {
+            "start": 351,
+            "end": 351
+          },
+          {
+            "start": 356,
+            "end": 361
+          },
+          {
+            "start": 365,
+            "end": 374
+          },
+          {
+            "start": 377,
+            "end": 377
+          },
+          {
+            "start": 379,
+            "end": 384
+          },
+          {
+            "start": 388,
+            "end": 429
+          },
+          {
+            "start": 469,
+            "end": 469
+          },
+          {
+            "start": 537,
+            "end": 538
+          },
+          {
+            "start": 545,
+            "end": 558
+          }
+        ],
+        "before_hash": "b8fd7e5a9a1ac69ff648b49e36ea3ce389171ecc4fb26db56b61c5184169762a",
+        "after_hash": "dc1fd1c4c7e81afa37a6041f7e01254fc9bef466fb4c024bef5777bc91be844b"
+      },
+      {
+        "file": "apps/web/src/media/audio-clock.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 50
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "55f4d2fb260bf0c10191e54f89810db89c3b06d551050decc4de4a6cc6471dc2"
+      },
+      {
+        "file": "apps/web/src/media/host-audio.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 288
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "eacc28a0e463aa4e7d2671d2cea682524f0267a74ffcd0fd033ff3d22a328451"
+      },
+      {
+        "file": "apps/web/src/media/local-source/buffer-source.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 93
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "8e8bca1cf6464f28d1146be943f0f1aeb56ad7627d85ecc3b3e92127c51542cd"
+      },
+      {
+        "file": "apps/web/src/media/member-audio.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 260
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "731f0aee4475174ecd467867f562d81080d59abde09f393c06c743012d326c01"
+      },
+      {
+        "file": "apps/web/src/media/webrtc/ice-config.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 35
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "a14aaa1da820e91fa69c105502156421b6ddeeb2bbfbd9e4c5c0acd993e71df0"
+      },
+      {
+        "file": "apps/web/src/media/webrtc/member-peer.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 81
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "d1bfdb1db5e0b916d2c30f5ee417b432967630f51ffa710b06ef1668d6f274b8"
+      },
+      {
+        "file": "apps/web/src/media/webrtc/peer-targets.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "327947ca1a278019faf9ad0626b903291776686b88fff4f169ca18d45c65923e"
+      },
+      {
+        "file": "apps/web/src/media/wiring.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 129
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "5ac87c56fad4a154540329990e8581aebafbec61c7af2f54de2f3c70146a4b16"
+      },
+      {
+        "file": "apps/web/src/test/media-units.test.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 118
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "da3946a3a1ce6268bcefde6e923461b790d7b02928184efcfd48e4ebd5a1c72e"
+      },
+      {
+        "file": "apps/web/src/test/pages.test.tsx",
+        "ranges": [
+          {
+            "start": 184,
+            "end": 184
+          },
+          {
+            "start": 209,
+            "end": 209
+          }
+        ],
+        "before_hash": "796f569c4f2731ee377726ceb00b66f40972714da7dd73778379e9f3cafe56af",
+        "after_hash": "1d8fb368bfcfc6ba5fe1d8d6eaa5c2af88df36d620728f5d0aed3f162f9035ce"
+      },
+      {
+        "file": "apps/web/src/test/room-store.test.ts",
+        "ranges": [
+          {
+            "start": 104,
+            "end": 104
+          },
+          {
+            "start": 122,
+            "end": 122
+          },
+          {
+            "start": 127,
+            "end": 131
+          },
+          {
+            "start": 137,
+            "end": 137
+          },
+          {
+            "start": 144,
+            "end": 203
+          }
+        ],
+        "before_hash": "232eb0311e8c9afa86ed896d7605d8c4ef9acf811e9705a3330399489dab9c17",
+        "after_hash": "9caabb60ba719e532a61bf2eb5209be61cf6c70b4d7ea19efbf136a5fe725837"
+      },
+      {
+        "file": "apps/web/src/transport/ws/room-store.ts",
+        "ranges": [
+          {
+            "start": 3,
+            "end": 4
+          },
+          {
+            "start": 11,
+            "end": 11
+          },
+          {
+            "start": 16,
+            "end": 17
+          },
+          {
+            "start": 32,
+            "end": 32
+          },
+          {
+            "start": 34,
+            "end": 35
+          },
+          {
+            "start": 40,
+            "end": 41
+          },
+          {
+            "start": 62,
+            "end": 62
+          },
+          {
+            "start": 66,
+            "end": 66
+          },
+          {
+            "start": 70,
+            "end": 70
+          },
+          {
+            "start": 77,
+            "end": 78
+          },
+          {
+            "start": 86,
+            "end": 90
+          },
+          {
+            "start": 100,
+            "end": 109
+          },
+          {
+            "start": 127,
+            "end": 127
+          },
+          {
+            "start": 251,
+            "end": 251
+          },
+          {
+            "start": 264,
+            "end": 269
+          },
+          {
+            "start": 272,
+            "end": 275
+          },
+          {
+            "start": 326,
+            "end": 326
+          },
+          {
+            "start": 343,
+            "end": 343
+          },
+          {
+            "start": 349,
+            "end": 349
+          },
+          {
+            "start": 421,
+            "end": 426
+          },
+          {
+            "start": 428,
+            "end": 452
+          }
+        ],
+        "before_hash": "c978fcfd4d4ca817f779a990037727ad1468ff92ece2025f9beb30acc7cee2d0",
+        "after_hash": "af8782de7233003d01325446fcc79646a840af936f5ed2a51987e6dc0841c157"
+      },
+      {
+        "file": "apps/web/src/vite-env.d.ts",
+        "ranges": [
+          {
+            "start": 6,
+            "end": 7
+          }
+        ],
+        "before_hash": "8fbd0686bfe744c91ca1aa5a4ab6808c1489369f86e68450e5029a41d3092c67",
+        "after_hash": "79807375c938c3b654bb75968cbf9693a51e9809a069161595dfeac099f46efe"
+      },
+      {
+        "file": "packages/protocol/src/types.ts",
+        "ranges": [
+          {
+            "start": 50,
+            "end": 58
+          },
+          {
+            "start": 67,
+            "end": 68
+          }
+        ],
+        "before_hash": "bebcf2dc73ebe3b6d028455fea6358514b27599597117bf00dca9920ffe5ba95",
+        "after_hash": "0732a951a39e22b7b55bcca8595c29a6816e219022f9cda418339849b8db7c01"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-09-06T04:59:46.353Z",
+    "completed_at": "2026-09-06T04:59:48.848Z",
+    "duration_ms": 2495,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 2495,
+    "peakMemoryBytes": 79478784,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 0,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_4c9f0145-a4a7-4a2b-ab73-ab1f2b64559d-20260906T045948848Z-4620-ada5ed516b87.json",
+    "latest_report": ".mimosa/reports/task-review-sess_4c9f0145-a4a7-4a2b-ab73-ab1f2b64559d.json",
+    "history_summary": ".mimosa/history/run-20260906T045948848Z-4620-ada5ed516b87.json"
+  }
+}

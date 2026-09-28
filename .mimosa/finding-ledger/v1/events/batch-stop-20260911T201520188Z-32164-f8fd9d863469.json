@@ -1,0 +1,288 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260911T201520188Z-32164-f8fd9d863469",
+  "runId": "20260911T201520188Z-32164-f8fd9d863469",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "changed_file_unreadable",
+        "stage": "candidate-select",
+        "target": "scripts/tmp/livecheck/main.go",
+        "detail": "observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "changed_file_unreadable",
+        "stage": "candidate-select",
+        "target": "apps/relay/cmd/livecheck/main.go",
+        "detail": "observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "apps/relay/internal/room/lyrics_test.go",
+        "detail": "29 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "scripts/tmp/livecheck/main.go",
+        "detail": "changed_file_unreadable: observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "apps/relay/cmd/livecheck/main.go",
+        "detail": "changed_file_unreadable: observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "apps/relay/internal/room/lyrics_test.go",
+        "detail": "candidate_limit_exceeded: 29 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "d2f81ad55e4cc2f679218efc614326c82417ff7e302178abcc5b73ba916bbe04",
+  "rulesVersion": "unavailable",
+  "sessionHash": "1b6966e1cb9824dc7ddab23207dce44b9298cd665d655a22042ec9cb34c9527f",
+  "reportRef": ".mimosa/reports/task-review-sess_a16da887-f386-4dab-bec7-5d05b42286a9-20260911T201520188Z-32164-f8fd9d863469.json",
+  "events": [
+    {
+      "eventId": "hook-08d0bef89db3f6f68dad19a5b5c168c3",
+      "findingId": "mimosa-06799880b56d16d481e3d692",
+      "type": "finding_blocked",
+      "at": "2026-09-11T19:02:46.842Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/providers/normalize.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "f1111beb64edf7f8fc11f72c39b72fe7c7425cc0663b7b6758a0cae3af01c825",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 88,
+      "endLine": 88,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "f1111beb64edf7f8fc11f72c39b72fe7c7425cc0663b7b6758a0cae3af01c825"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-0f1d3246fc75e209fc2ca120432c0149",
+      "findingId": "mimosa-06799880b56d16d481e3d692",
+      "type": "finding_blocked",
+      "at": "2026-09-11T19:03:27.941Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/providers/normalize.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "f1111beb64edf7f8fc11f72c39b72fe7c7425cc0663b7b6758a0cae3af01c825",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 93,
+      "endLine": 93,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "f1111beb64edf7f8fc11f72c39b72fe7c7425cc0663b7b6758a0cae3af01c825"
+      },
+      "sequence": 1
+    },
+    {
+      "eventId": "hook-2f989d53c201f24c3e41e04e9d5ebbf8",
+      "findingId": "mimosa-06799880b56d16d481e3d692",
+      "type": "static_fix_verified",
+      "at": "2026-09-11T19:04:26.916Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/providers/normalize.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "f1111beb64edf7f8fc11f72c39b72fe7c7425cc0663b7b6758a0cae3af01c825",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 93,
+      "endLine": 93,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "f1111beb64edf7f8fc11f72c39b72fe7c7425cc0663b7b6758a0cae3af01c825"
+      },
+      "sequence": 2
+    },
+    {
+      "eventId": "hook-28c82daabf5c3918a1940e5ae525f318",
+      "findingId": "mimosa-7ae9be0a3db261bf84e5b953",
+      "type": "finding_blocked",
+      "at": "2026-09-11T19:06:26.397Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/room/lyrics.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 79,
+      "endLine": 79,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952"
+      },
+      "sequence": 3
+    },
+    {
+      "eventId": "hook-ccac0f1bb02142dffe096e4c8460c785",
+      "findingId": "mimosa-7ae9be0a3db261bf84e5b953",
+      "type": "static_fix_verified",
+      "at": "2026-09-11T19:06:54.161Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/room/lyrics.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 79,
+      "endLine": 79,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "2fdc67064ed3ba36abe5228a83350613c489a65733cea570bfcaa6b6a1e1f952"
+      },
+      "sequence": 4
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "packages/protocol/test/envelope.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/protocol/payload_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/providers/provider.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/providers/netease.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/providers/qqmusic.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/providers/spotify.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/providers/ytmusic.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/providers/providers_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/oauth/oauth.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/oauth/oauth_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/lyrics.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/room.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/playback.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/httpapi/recover.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/httpapi/resolveapi.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/httpapi/oauthapi.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/config/config.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/cmd/relay/main.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/hub/hub.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/ws/handler.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-11T20:15:20.547Z"
+}

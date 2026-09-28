@@ -1,0 +1,47 @@
+package config
+
+import "testing"
+
+func TestFromEnvDefaults(t *testing.T) {
+	cfg := FromEnv(func(string) string { return "" })
+	if cfg.Addr != ":8080" {
+		t.Fatalf("Addr = %q, want :8080", cfg.Addr)
+	}
+	if cfg.LogLevel != "info" {
+		t.Fatalf("LogLevel = %q, want info", cfg.LogLevel)
+	}
+	want := []string{"http://localhost:5173", "http://127.0.0.1:5173"}
+	if len(cfg.AllowedOrigins) != len(want) {
+		t.Fatalf("AllowedOrigins = %v, want %v", cfg.AllowedOrigins, want)
+	}
+	for i := range want {
+		if cfg.AllowedOrigins[i] != want[i] {
+			t.Fatalf("AllowedOrigins[%d] = %q, want %q", i, cfg.AllowedOrigins[i], want[i])
+		}
+	}
+}
+
+func TestFromEnvCustom(t *testing.T) {
+	env := map[string]string{
+		"LISTO_RELAY_ADDR":            "127.0.0.1:9000 ",
+		"LISTO_RELAY_LOG_LEVEL":       "DEBUG",
+		"LISTO_RELAY_ALLOWED_ORIGINS": " https://a.example , https://b.example ,,",
+	}
+	cfg := FromEnv(func(key string) string { return env[key] })
+	if cfg.Addr != "127.0.0.1:9000" {
+		t.Fatalf("Addr = %q, want 127.0.0.1:9000", cfg.Addr)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("LogLevel = %q, want debug", cfg.LogLevel)
+	}
+	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != "https://a.example" || cfg.AllowedOrigins[1] != "https://b.example" {
+		t.Fatalf("AllowedOrigins = %v, want trimmed two entries", cfg.AllowedOrigins)
+	}
+}
+
+func TestFromEnvEmptyValueFallsBackToDefault(t *testing.T) {
+	cfg := FromEnv(func(key string) string { return "  " })
+	if cfg.Addr != DefaultAddr || cfg.LogLevel != DefaultLogLevel {
+		t.Fatalf("blank env values should fall back to defaults, got %+v", cfg)
+	}
+}

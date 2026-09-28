@@ -1,0 +1,233 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260911T175603907Z-28544-15c6ce4b85aa",
+  "runId": "20260911T175603907Z-28544-15c6ce4b85aa",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "apps/relay/internal/ws/handler_test.go",
+        "detail": "2 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "apps/web/src/ui/format.ts",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "apps/web/src/features/room/use-host-library.ts",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "apps/web/src/features/chat/ChatPanel.tsx",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "apps/relay/internal/ws/handler_test.go",
+        "detail": "candidate_limit_exceeded: 2 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "apps/web/src/ui/format.ts",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "apps/web/src/features/room/use-host-library.ts",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "apps/web/src/features/chat/ChatPanel.tsx",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "93beea3db0a79a6b126286e1eab039944f0ec42bfae51262abf64aeae12f9ea2",
+  "rulesVersion": "unavailable",
+  "sessionHash": "46fec31bb8e0fa7e5c0f163f7f89ff66e8c376c6c44773466e3e67dd19f2d722",
+  "reportRef": ".mimosa/reports/task-review-sess_3e98c7ee-4b90-41e0-a381-0cc49ee57595-20260911T175603907Z-28544-15c6ce4b85aa.json",
+  "events": [
+    {
+      "eventId": "hook-9e2d7023db12ed1bce822d2861f5ba8d",
+      "findingId": "mimosa-fc602a6e0d0a708c9c715267",
+      "type": "finding_observed",
+      "at": "2026-09-11T15:55:33.420Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/room/RoomPage.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "ad34d41a5805180c5cbddfadf4648724f7fe91fea6b0e80d2a7a2f71bd7a94a1",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 2,
+      "endLine": 2,
+      "reasonCode": "advisory",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "ad34d41a5805180c5cbddfadf4648724f7fe91fea6b0e80d2a7a2f71bd7a94a1"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-aa95c7a6f85fcd6e078d15dbf2ee4f03",
+      "findingId": "mimosa-fc602a6e0d0a708c9c715267",
+      "type": "finding_observed",
+      "at": "2026-09-11T17:56:03.907Z",
+      "identity": {
+        "projectRelativeFile": "apps/web/src/features/room/RoomPage.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "ad34d41a5805180c5cbddfadf4648724f7fe91fea6b0e80d2a7a2f71bd7a94a1",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 139,
+      "endLine": 139,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "ad34d41a5805180c5cbddfadf4648724f7fe91fea6b0e80d2a7a2f71bd7a94a1"
+      },
+      "sequence": 1
+    }
+  ],
+  "observedFindingIds": [
+    "mimosa-fc602a6e0d0a708c9c715267",
+    "mimosa-7312c55937831f3debad21a5"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "packages/protocol/src/types.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/protocol/protocol.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/protocol/payload.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/room.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/playback.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/queue.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/queue/QueuePanel.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/library.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/LibraryPanel.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/RoomPage.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/media/wiring.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "packages/protocol/test/envelope.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/test/room-store.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/test/library.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/test/queue-panel.test.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/ui/format.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/transport/ws/room-store.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/media/host-audio.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/use-host-library.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/chat/ChatPanel.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-11T17:56:04.315Z"
+}

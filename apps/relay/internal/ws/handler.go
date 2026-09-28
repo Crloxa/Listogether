@@ -1,0 +1,231 @@
+// Package ws 实现 WebSocket 连接：升级前会话校验、连接挂载、
+// 消息校验循环、单写者写泵（含 PING 保活）和慢消费者断开。
+package ws
+
+import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"listogether/apps/relay/internal/hub"
+	"listogether/apps/relay/internal/protocol"
+)
+
+const (
+	writeWait      = 5 * time.Second
+	readWait       = 60 * time.Second
+	pingInterval   = 20 * time.Second
+	outboundBuffer = 64
+	maxMessageSize = 64 * 1024
+)
+
+// 应用层关闭码（docs/03-technical-design.md“连接健康”）。
+const (
+	CloseLeave          = 3001 // 客户端显式离开（唯一由客户端发出）
+	CloseSessionInvalid = 4001 // 会话失效：被踢/过期/无法挂载
+	CloseRoomClosed     = 4002 // 房间已关闭
+)
+
+// NewHandler 返回 GET /ws 处理器：升级前校验会话，升级后挂载到房间并循环路由消息。
+func NewHandler(logger *slog.Logger, h *hub.Hub, allowedOrigins []string) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = struct{}{}
+	}
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // 非浏览器客户端（curl、测试）
+			}
+			_, ok := allowed[origin]
+			return ok
+		},
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		roomID := query.Get("roomId")
+		sessionToken := query.Get("sessionToken")
+		session, ok := h.LookupSessionForRoom(roomID, sessionToken)
+		if !ok {
+			// 升级前拒绝；token 不写入任何日志（D-008）
+			logger.Info("ws handshake rejected", "reason", "invalid_session", "roomId", roomID)
+			http.Error(w, "invalid session", http.StatusUnauthorized)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			logger.Debug("ws upgrade failed", "err", err.Error())
+			return
+		}
+		pc := newPeerConn(conn)
+
+		result := h.Attach(roomID, pc, session)
+		if result.Err != nil {
+			// 写泵未启动，同步写错误并收尾关闭
+			writeEnvelope(conn, protocol.NewErrorEnvelope(result.Err.Code, result.Err.Message, "", time.Now().UnixMilli()))
+			pc.Close(closeCodeFor(result.Err.Code), result.Err.Code)
+			pc.Finalize()
+			return
+		}
+		logger.Info("ws attached", "roomId", roomID, "memberId", session.MemberID)
+
+		conn.SetReadLimit(maxMessageSize)
+		_ = conn.SetReadDeadline(time.Now().Add(readWait))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(readWait))
+		})
+		go pc.writePump()
+
+		graceful := false
+		defer func() {
+			roomRef, ok := h.Room(roomID)
+			if ok {
+				roomRef.Detach(pc, graceful)
+			}
+			pc.Close(websocket.CloseNormalClosure, "")
+		}()
+
+		for {
+			msgType, data, err := conn.ReadMessage()
+			if err != nil {
+				// 仅显式离开（3001）立即移除成员；刷新/后台冻结/断网都走 offline 宽限期（D-009）
+				graceful = websocket.IsCloseError(err, CloseLeave)
+				logger.Debug("ws read ended", "roomId", roomID, "memberId", session.MemberID, "explicitLeave", graceful)
+				return
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(readWait))
+			if msgType != websocket.TextMessage {
+				pc.Send(protocol.NewErrorEnvelope(protocol.CodeInvalidMessage, "仅接受 JSON 文本帧", "", time.Now().UnixMilli()))
+				continue
+			}
+			env, verr := parseEnvelope(data)
+			if verr != nil {
+				pc.Send(protocol.NewErrorEnvelope(verr.Code, verr.Message, "", time.Now().UnixMilli()))
+				continue
+			}
+			if perr := protocol.Validate(env); perr != nil {
+				pc.Send(protocol.NewErrorEnvelope(perr.Code, perr.Message, env.EventID, time.Now().UnixMilli()))
+				continue
+			}
+			// senderId 由会话绑定成员覆写，不信任客户端自报
+			env.SenderID = session.MemberID
+			roomRef, ok := h.Room(roomID)
+			if !ok {
+				pc.Close(CloseRoomClosed, "room closed")
+				return
+			}
+			roomRef.HandleEnvelope(pc, env)
+		}
+	})
+}
+
+// peerConn 实现 room.Conn：非阻塞 Send + 单写者写泵。
+// gorilla 连接不允许多 goroutine 并发写：Close 只记录关闭码并停泵，
+// CloseMessage 与 conn.Close 一律由写泵（或未启动写泵时的调用方）收尾。
+type peerConn struct {
+	conn        *websocket.Conn
+	out         chan protocol.Envelope
+	done        chan struct{}
+	closeOnce   sync.Once
+	closeCode   int
+	closeReason string
+}
+
+func newPeerConn(c *websocket.Conn) *peerConn {
+	return &peerConn{conn: c, out: make(chan protocol.Envelope, outboundBuffer), done: make(chan struct{})}
+}
+
+// Send 投递信封；连接关闭或队列满（慢消费者）返回 false。
+func (p *peerConn) Send(env protocol.Envelope) bool {
+	select {
+	case <-p.done:
+		return false
+	default:
+	}
+	select {
+	case p.out <- env:
+		return true
+	default:
+		return false
+	}
+}
+
+// Close 记录应用层关闭码并停止写泵；可从任意 goroutine 调用且幂等。
+// 若写泵尚未启动，调用方需随后调用 Finalize 完成关闭。
+func (p *peerConn) Close(code int, reason string) {
+	p.closeOnce.Do(func() {
+		p.closeCode = code
+		p.closeReason = reason
+		close(p.done)
+	})
+}
+
+// Finalize 由写泵退出时（或写泵未启动的路径）执行：发送 CloseMessage 并关闭连接。
+func (p *peerConn) Finalize() {
+	_ = p.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	code := p.closeCode
+	if code == 0 {
+		code = websocket.CloseNormalClosure
+	}
+	_ = p.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, p.closeReason))
+	_ = p.conn.Close()
+}
+
+// writePump 是唯一写者：出站信封、周期 PING 与最终 CloseMessage 都经此 goroutine 发出。
+func (p *peerConn) writePump() {
+	defer func() {
+		// panic 隔离（Phase 4 加固）：写泵崩溃按连接关闭处理，不击穿进程
+		if rec := recover(); rec != nil {
+			_ = rec
+		}
+	}()
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+	defer p.Finalize()
+	for {
+		select {
+		case env := <-p.out:
+			writeEnvelope(p.conn, env)
+		case <-ticker.C:
+			_ = p.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := p.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		case <-p.done:
+			return
+		}
+	}
+}
+
+func writeEnvelope(conn *websocket.Conn, env protocol.Envelope) {
+	data, err := json.Marshal(env)
+	if err != nil {
+		return
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
+	_ = conn.WriteMessage(websocket.TextMessage, data)
+}
+
+func closeCodeFor(errCode string) int {
+	return CloseSessionInvalid
+}
+
+// parseEnvelope 严格解析信封：未知信封字段拒绝（对应 schema additionalProperties:false）。
+func parseEnvelope(data []byte) (*protocol.Envelope, *protocol.ProtocolError) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var env protocol.Envelope
+	if err := dec.Decode(&env); err != nil {
+		return nil, &protocol.ProtocolError{Code: protocol.CodeInvalidMessage, Message: "JSON 解析失败或包含未知字段"}
+	}
+	return &env, nil
+}

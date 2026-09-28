@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20260911T201520188Z-32164-f8fd9d863469",
+  "runStatus": "inconclusive",
+  "errors": [
+    "candidate-select:scripts/tmp/livecheck/main.go: changed_file_unreadable: observed changed file no longer exists or cannot be read",
+    "candidate-select:apps/relay/cmd/livecheck/main.go: changed_file_unreadable: observed changed file no longer exists or cannot be read",
+    "candidate-select:apps/relay/internal/room/lyrics_test.go: candidate_limit_exceeded: 29 changed reviewable file(s) were not scanned because the limit is 20"
+  ],
+  "target": ".",
+  "revision": null,
+  "diffHash": "d2f81ad55e4cc2f679218efc614326c82417ff7e302178abcc5b73ba916bbe04",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-09-11T20:15:20.188Z",
+  "timing": {
+    "startedAt": "2026-09-11T20:15:18.381Z",
+    "completedAt": "2026-09-11T20:15:20.188Z",
+    "durationMs": 1807
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 2,
+    "bySeverity": {
+      "high": 2
+    },
+    "byStatus": {
+      "static_verified": 2
+    }
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "changed_file_unreadable": 2,
+      "candidate_limit_exceeded": 1,
+      "project_check_failed": 3
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_a16da887-f386-4dab-bec7-5d05b42286a9-20260911T201520188Z-32164-f8fd9d863469.json"
+}

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Go relay 构建产物与临时文件
+apps/relay/bin/
+apps/relay/relay
+scripts/tmp/
+
+# 本地环境配置（只提交 .env.example）
+.env
+.env.local
+
+# 日志与临时证据
+*.log
+tmp/
+
+# E2E 合成测试音频（脚本生成，非个人音频，不入库）
+e2e-testtone.wav
+apps/web/public/e2e-*.wav

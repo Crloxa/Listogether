@@ -1,0 +1,58 @@
+{
+  "capturedAt": "2026-09-06T04:37:35.822Z",
+  "host": {
+    "host": {
+      "ctxState": "running",
+      "iceError": null,
+      "iceSource": "default",
+      "loadedCurrent": true,
+      "loadedPending": {
+        "durationMs": 120000,
+        "title": "e2e-testtone",
+        "trackId": "local-1a075013402-664355d4"
+      },
+      "monitorLevel": 0.2844,
+      "peers": [
+        {
+          "destTrackMuted": false,
+          "ice": "connected",
+          "memberId": "d67ed031f11ad29b73c44db861b7285d",
+          "serving": true,
+          "state": "connected"
+        }
+      ]
+    },
+    "member": null,
+    "memberId": "6ed52ae6252cb73c073aed2185ba6693",
+    "playing": true,
+    "positionMs": 35299,
+    "revision": 33,
+    "role": "host",
+    "roomId": "d4fbfd64ce1e50c13d298dfd45e31f80",
+    "serverNowMs": 1788669455622,
+    "transitionId": "818f228e638c64fd7352be33aef42537"
+  },
+  "member": {
+    "host": null,
+    "member": {
+      "autoResyncUsed": false,
+      "ctxState": "running",
+      "firstAudioLagMs": 112,
+      "hasTrack": true,
+      "ice": "connected",
+      "level": 0.2856,
+      "muted": false,
+      "pcState": "connected",
+      "remoteTrackMuted": false,
+      "volume": 1
+    },
+    "memberId": "d67ed031f11ad29b73c44db861b7285d",
+    "playing": true,
+    "positionMs": 35031,
+    "revision": 33,
+    "role": "listener",
+    "roomId": "d4fbfd64ce1e50c13d298dfd45e31f80",
+    "serverNowMs": 1788669455354,
+    "transitionId": "818f228e638c64fd7352be33aef42537"
+  }
+}

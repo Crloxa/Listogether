@@ -1,0 +1,116 @@
+// httpops.go 实现经房间 actor 的 HTTP 管理操作：锁房、踢人、授权角色、信息查询。
+// 会话只提供身份，权限一律以房间内成员记录为准。
+package room
+
+import (
+	"listogether/apps/relay/internal/protocol"
+)
+
+// LockRoom 设置锁房状态；只影响新加入，不广播、不改 revision。
+func (r *Room) LockRoom(actorID string, locked bool) *AccessError {
+	var err *AccessError
+	ok := r.Do(func() {
+		m := r.members[actorID]
+		if m == nil || m.Role != RoleHost {
+			err = &AccessError{Code: protocol.CodeUnauthorized, Message: "只有房主可以锁房"}
+			return
+		}
+		if r.closed {
+			err = &AccessError{Code: protocol.CodeRoomNotFound, Message: "房间已关闭"}
+			return
+		}
+		r.locked = locked
+		r.logger.Info("room lock changed", "roomId", r.cfg.ID, "locked", locked, "by", actorID)
+	})
+	if !ok {
+		return &AccessError{Code: protocol.CodeInternal, Message: "房间不可用"}
+	}
+	return err
+}
+
+// Kick 移除目标成员；目标会话经 hooks 失效，必须重新通过邀请加入。
+func (r *Room) Kick(actorID, targetID string) *AccessError {
+	var err *AccessError
+	ok := r.Do(func() {
+		if r.closed {
+			err = &AccessError{Code: protocol.CodeRoomNotFound, Message: "房间已关闭"}
+			return
+		}
+		actor := r.members[actorID]
+		if actor == nil || actor.Role != RoleHost {
+			err = &AccessError{Code: protocol.CodeUnauthorized, Message: "只有房主可以移除成员"}
+			return
+		}
+		if actorID == targetID {
+			err = &AccessError{Code: protocol.CodeInvalidMessage, Message: "不能移除自己；请使用关闭房间或离开"}
+			return
+		}
+		if _, exists := r.members[targetID]; !exists {
+			err = &AccessError{Code: protocol.CodeRoomNotFound, Message: "目标成员不在房间"}
+			return
+		}
+		r.removeMember(targetID, "kicked")
+	})
+	if !ok {
+		return &AccessError{Code: protocol.CodeInternal, Message: "房间不可用"}
+	}
+	return err
+}
+
+// SetRole 把目标成员设为共同 DJ 或听众；不能通过该接口指定 host。
+func (r *Room) SetRole(actorID, targetID, role string) *AccessError {
+	var err *AccessError
+	ok := r.Do(func() {
+		if r.closed {
+			err = &AccessError{Code: protocol.CodeRoomNotFound, Message: "房间已关闭"}
+			return
+		}
+		actor := r.members[actorID]
+		if actor == nil || actor.Role != RoleHost {
+			err = &AccessError{Code: protocol.CodeUnauthorized, Message: "只有房主可以授权角色"}
+			return
+		}
+		if role != RoleCoDJ && role != RoleListener {
+			err = &AccessError{Code: protocol.CodeInvalidMessage, Message: "角色只能是 co_dj 或 listener"}
+			return
+		}
+		if actorID == targetID {
+			err = &AccessError{Code: protocol.CodeInvalidMessage, Message: "不能变更自己的角色"}
+			return
+		}
+		target := r.members[targetID]
+		if target == nil {
+			err = &AccessError{Code: protocol.CodeRoomNotFound, Message: "目标成员不在房间"}
+			return
+		}
+		target.Role = role
+		target.Ready = nil
+		r.bump()
+		r.broadcastSnapshot()
+		r.logger.Info("member role changed", "roomId", r.cfg.ID, "memberId", targetID, "role", role, "by", actorID)
+	})
+	if !ok {
+		return &AccessError{Code: protocol.CodeInternal, Message: "房间不可用"}
+	}
+	return err
+}
+
+// PublicInfo 是 GET /api/rooms/{roomId} 的公开信息。
+type PublicInfo struct {
+	RoomID      string
+	Locked      bool
+	MemberCount int
+	MaxMembers  int
+}
+
+// PublicInfo 返回房间公开信息；房间不存在（已关闭）返回 false。
+func (r *Room) PublicInfo() (PublicInfo, bool) {
+	var info PublicInfo
+	ok := r.Do(func() {
+		info = PublicInfo{RoomID: r.cfg.ID, Locked: r.locked, MemberCount: len(r.members), MaxMembers: r.cfg.MaxMembers}
+	})
+	if !ok {
+		return PublicInfo{}, false
+	}
+	return info, true
+}

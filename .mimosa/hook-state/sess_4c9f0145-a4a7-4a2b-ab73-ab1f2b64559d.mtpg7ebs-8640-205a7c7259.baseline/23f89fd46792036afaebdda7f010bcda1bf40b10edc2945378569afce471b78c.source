@@ -1,0 +1,83 @@
+// Relay 主程序：装配配置、日志、HTTP 路由（/healthz、/ws、/api/rooms/*）
+// 并支持直连 TLS 与优雅关闭。
+package main
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"listogether/apps/relay/internal/config"
+	"listogether/apps/relay/internal/httpapi"
+	"listogether/apps/relay/internal/hub"
+	"listogether/apps/relay/internal/logging"
+	relayws "listogether/apps/relay/internal/ws"
+)
+
+func main() {
+	cfg := config.FromEnv(os.Getenv)
+	logger := logging.New(cfg.LogLevel)
+
+	roomHub := hub.New(logger)
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /healthz", httpapi.NewHealthHandler(cfg.AllowedOrigins))
+	mux.Handle("GET /ws", relayws.NewHandler(logger, roomHub, cfg.AllowedOrigins))
+	mux.Handle("/api/rooms", httpapi.NewRoomAPI(logger, roomHub, cfg.AllowedOrigins))
+	mux.Handle("/api/rooms/", httpapi.NewRoomAPI(logger, roomHub, cfg.AllowedOrigins))
+
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		if cfg.TLS() {
+			errCh <- srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+			return
+		}
+		errCh <- srv.ListenAndServe()
+	}()
+
+	mode := "http"
+	if cfg.TLS() {
+		mode = "https/wss"
+	}
+	logger.Info("relay listening",
+		"addr", cfg.Addr,
+		"mode", mode,
+		"logLevel", cfg.LogLevel,
+		"allowedOrigins", cfg.AllowedOrigins,
+		"maxMembers", cfg.MaxMembers,
+		"offlineTTLSeconds", int(cfg.OfflineTTL/time.Second),
+		"version", httpapi.Version,
+	)
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("server failed", "err", err.Error())
+			roomHub.Close()
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		logger.Info("shutdown signal received")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("graceful shutdown failed", "err", err.Error())
+	}
+	roomHub.Close()
+	logger.Info("relay stopped")
+}

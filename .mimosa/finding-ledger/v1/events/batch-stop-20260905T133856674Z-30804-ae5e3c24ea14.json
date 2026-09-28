@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260905T133856674Z-30804-ae5e3c24ea14",
+  "runId": "20260905T133856674Z-30804-ae5e3c24ea14",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "fb41a490aee5099598228396e1996a74e40015980ea37b69c0229b6b1c1cf655",
+  "rulesVersion": "unavailable",
+  "sessionHash": "1e77b247d5fb8fc154c2ed66f445c79a2c9188dcfff6e9bc2f5f57fab9ab383a",
+  "reportRef": ".mimosa/reports/task-review-sess_a545a04a-6f34-4ea4-af86-67a70c69e58c-20260905T133856674Z-30804-ae5e3c24ea14.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-7312c55937831f3debad21a5"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "apps/relay/internal/ws/handler.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/transport/ws/room-store.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/test/room-store.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/web/src/features/room/RoomPage.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/ws/handler_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/room.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "apps/relay/internal/room/room_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-05T13:38:57.078Z"
+}
